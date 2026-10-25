@@ -28,44 +28,48 @@ public class RefreshTokenService {
     private final RefreshTokenRepository refreshTokenRepository;
     private final UserRepository userRepository;
 
-    @Transactional
-    public String createRefreshToken(String username) {
-        User user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new UserNotFoundException(USER_NOT_FOUND_MESSAGE + username));
-        return issueRefreshToken(user);
-    }
-
-    @Transactional(readOnly = true)
-    public Optional<String> findUsernameByToken(String token) {
-        return refreshTokenRepository.findByToken(token)
-                .filter(refreshToken -> refreshToken.getExpiryDate().isAfter(Instant.now()))
-                .map(refreshToken -> refreshToken.getUser().getUsername());
-    }
-
-    @Transactional
-    public String rotate(String token, User user) {
-        RefreshToken refreshToken = refreshTokenRepository.findByToken(token)
-                .orElseThrow(() -> new InvalidCredentialsException(INVALID_REFRESH_TOKEN_MESSAGE));
-
-        if (refreshToken.getExpiryDate().isBefore(Instant.now())) {
-            refreshTokenRepository.delete(refreshToken);
-            throw new InvalidCredentialsException(INVALID_REFRESH_TOKEN_MESSAGE);
-        }
-
-        if (refreshToken.getUser().getId() != user.getId()) {
-            throw new InvalidCredentialsException(INVALID_REFRESH_TOKEN_MESSAGE);
-        }
-
-        refreshTokenRepository.delete(refreshToken);
-        return issueRefreshToken(user);
-    }
-
-    private String issueRefreshToken(User user) {
-        RefreshToken refreshToken = RefreshToken.builder()
-                .token(UUID.randomUUID().toString())
-                .user(user)
-                .expiryDate(Instant.now().plusMillis(refreshTokenExpiration))
-                .build();
-        return refreshTokenRepository.save(refreshToken).getToken();
-    }
+//    @Transactional
+//    public String createRefreshToken(String username) {
+//        User user = userRepository.findByUsername(username)
+//                .orElseThrow(() -> new UserNotFoundException(USER_NOT_FOUND_MESSAGE + username));
+//        return issueRefreshToken(user);
+//    }
+//
+//    @Transactional(readOnly = true)
+//    public Optional<String> findUsernameByToken(String token) {
+//        return refreshTokenRepository.findByTokenHash(tokenHash)
+//                .filter(refreshToken -> refreshToken.getExpiryDate().isAfter(Instant.now()))
+//                .map(refreshToken -> refreshToken.getUser().getUsername());
+//    }
+//
+//    @Transactional
+//    public String rotate(String token, User user) {
+//        RefreshToken refreshToken = refreshTokenRepository.findByTokenHash(tokenHash)
+//                .orElseThrow(() -> new InvalidCredentialsException(INVALID_REFRESH_TOKEN_MESSAGE));
+//
+//        if (refreshToken.getExpiryDate().isBefore(Instant.now())) {
+//            refreshTokenRepository.delete(refreshToken);
+//            throw new InvalidCredentialsException(INVALID_REFRESH_TOKEN_MESSAGE);
+//        }
+//
+//        if (refreshToken.getUser().getId() != user.getId()) {
+//            throw new InvalidCredentialsException(INVALID_REFRESH_TOKEN_MESSAGE);
+//        }
+//
+//        refreshTokenRepository.delete(refreshToken);
+//        return issueRefreshToken(user);
+//    }
+//
+//    private String issueRefreshToken(User user) {
+//        RefreshToken refreshToken = RefreshToken.builder()
+//                .tokenHash(sha256(UUID.randomUUID().toString()))
+//                .user(user)
+//                .expiryDate(Instant.now().plusMillis(refreshTokenExpiration))
+//                .build();
+//        return refreshTokenRepository.save(refreshToken).getToken();
+//    }
+//
+//    private String sha256(String token) {
+//        return
+//    }
 }

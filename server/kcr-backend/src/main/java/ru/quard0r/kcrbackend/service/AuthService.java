@@ -29,63 +29,63 @@ public class AuthService {
     private final RefreshTokenService refreshTokenService;
     private final JwtService jwtService;
 
-    @Transactional
-    public AuthResponse register(RegisterRequest request) {
-        String email = normalizeEmail(request.email());
+//    @Transactional
+//    public AuthResponse register(RegisterRequest request) {
+//        String email = normalizeEmail(request.email());
+//
+//        if (userRepository.existsByUsername(request.username())) {
+//            throw new CredentialsAlreadyExistsException("Username already taken");
+//        }
+//        if (email != null && userRepository.existsByEmail(email)) {
+//            throw new CredentialsAlreadyExistsException("Email already taken");
+//        }
+//
+//        User user = User.builder()
+//                .username(request.username())
+//                .password(passwordEncoder.encode(request.password()))
+//                .email(email)
+//                .role(Role.OPERATOR)
+//                .build();
+//
+//        userRepository.save(user);
+//        return issueTokens(user);
+//    }
+//
+//    @Transactional
+//    public AuthResponse login(LoginRequest request) {
+//        User user = userRepository
+//                .findByUsername(request.username())
+//                .orElseThrow(() -> new InvalidCredentialsException(INVALID_CREDENTIALS_MESSAGE));
+//
+//        if (!passwordEncoder.matches(request.password(), user.getPassword())) {
+//            throw new InvalidCredentialsException(INVALID_CREDENTIALS_MESSAGE);
+//        }
+//
+//        return issueTokens(user);
+//    }
 
-        if (userRepository.existsByUsername(request.username())) {
-            throw new CredentialsAlreadyExistsException("Username already taken");
-        }
-        if (email != null && userRepository.existsByEmail(email)) {
-            throw new CredentialsAlreadyExistsException("Email already taken");
-        }
-
-        User user = User.builder()
-                .username(request.username())
-                .password(passwordEncoder.encode(request.password()))
-                .email(email)
-                .role(Role.OPERATOR)
-                .build();
-
-        userRepository.save(user);
-        return issueTokens(user);
-    }
-
-    @Transactional
-    public AuthResponse login(LoginRequest request) {
-        User user = userRepository
-                .findByUsername(request.username())
-                .orElseThrow(() -> new InvalidCredentialsException(INVALID_CREDENTIALS_MESSAGE));
-
-        if (!passwordEncoder.matches(request.password(), user.getPassword())) {
-            throw new InvalidCredentialsException(INVALID_CREDENTIALS_MESSAGE);
-        }
-
-        return issueTokens(user);
-    }
-
-    @Transactional
-    public AuthResponse refresh(String refreshToken) {
-        String username = refreshTokenService.findUsernameByToken(refreshToken)
-                .orElseThrow(() -> new InvalidCredentialsException(INVALID_REFRESH_TOKEN_MESSAGE));
-
-        User user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new UserNotFoundException("User not found"));
-
-        String newRefreshToken = refreshTokenService.rotate(refreshToken, user);
-
-        return AuthResponse.builder()
-                .accessToken(jwtService.generateAccessToken(user))
-                .refreshToken(newRefreshToken)
-                .build();
-    }
-
-    private AuthResponse issueTokens(User user) {
-        return AuthResponse.builder()
-                .accessToken(jwtService.generateAccessToken(user))
-                .refreshToken(refreshTokenService.createRefreshToken(user.getUsername()))
-                .build();
-    }
+//    @Transactional
+//    public AuthResponse refresh(String refreshToken) {
+//        String username = refreshTokenService.findUsernameByToken(refreshToken)
+//                .orElseThrow(() -> new InvalidCredentialsException(INVALID_REFRESH_TOKEN_MESSAGE));
+//
+//        User user = userRepository.findByUsername(username)
+//                .orElseThrow(() -> new UserNotFoundException("User not found"));
+//
+//        String newRefreshToken = refreshTokenService.rotate(refreshToken, user);
+//
+//        return AuthResponse.builder()
+//                .accessToken(jwtService.generateAccessToken(user))
+//                .refreshToken(newRefreshToken)
+//                .build();
+//    }
+//
+//    private AuthResponse issueTokens(User user) {
+//        return AuthResponse.builder()
+//                .accessToken(jwtService.generateAccessToken(user))
+//                .refreshToken(refreshTokenService.createRefreshToken(user.getUsername()))
+//                .build();
+//    }
 
     private String normalizeEmail(String email) {
         return email == null || email.isBlank() ? null : email.trim();
