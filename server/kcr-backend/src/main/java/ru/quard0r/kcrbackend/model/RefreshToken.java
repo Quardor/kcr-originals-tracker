@@ -23,4 +23,7 @@ public class RefreshToken {
 
     @Column(name = "expiry_date", nullable = false)
     private Instant expiryDate;
+
+    @Column(name = "rotated_date")
+    private Instant rotatedDate;
 }
