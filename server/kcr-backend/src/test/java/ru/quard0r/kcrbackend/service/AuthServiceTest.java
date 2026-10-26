@@ -64,8 +64,9 @@ class AuthServiceTest {
         when(userRepository.existsByUsername("newuser")).thenReturn(false);
         when(userRepository.existsByEmail("new@mail.com")).thenReturn(false);
         when(passwordEncoder.encode(RAW_PASSWORD)).thenReturn(HASHED_PASSWORD);
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(jwtService.generateAccessToken(any(User.class))).thenReturn("access-token");
-        when(refreshTokenService.createRefreshToken("newuser")).thenReturn("refresh-token");
+        when(refreshTokenService.createRefreshToken(any(User.class))).thenReturn("refresh-token");
 
         AuthResponse response = authService.register(
                 new RegisterRequest("newuser", RAW_PASSWORD, " new@mail.com "));
@@ -105,8 +106,9 @@ class AuthServiceTest {
     void registerTreatsBlankEmailAsAbsent() {
         when(userRepository.existsByUsername("newuser")).thenReturn(false);
         when(passwordEncoder.encode(RAW_PASSWORD)).thenReturn(HASHED_PASSWORD);
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(jwtService.generateAccessToken(any(User.class))).thenReturn("access-token");
-        when(refreshTokenService.createRefreshToken("newuser")).thenReturn("refresh-token");
+        when(refreshTokenService.createRefreshToken(any(User.class))).thenReturn("refresh-token");
 
         authService.register(new RegisterRequest("newuser", RAW_PASSWORD, "   "));
 
@@ -122,7 +124,7 @@ class AuthServiceTest {
         when(userRepository.findByUsername("user")).thenReturn(Optional.of(user));
         when(passwordEncoder.matches(RAW_PASSWORD, HASHED_PASSWORD)).thenReturn(true);
         when(jwtService.generateAccessToken(user)).thenReturn("access-token");
-        when(refreshTokenService.createRefreshToken("user")).thenReturn("refresh-token");
+        when(refreshTokenService.createRefreshToken(user)).thenReturn("refresh-token");
 
         AuthResponse response = authService.login(new LoginRequest("user", RAW_PASSWORD));
 
@@ -148,11 +150,10 @@ class AuthServiceTest {
     }
 
     @Test
-    void refreshRotatesTokens() {
+    void refreshReturnsNewTokenPairForValidRefreshToken() {
         User user = user();
-        when(refreshTokenService.findUsernameByToken("old-refresh")).thenReturn(Optional.of("user"));
-        when(userRepository.findByUsername("user")).thenReturn(Optional.of(user));
-        when(refreshTokenService.rotate("old-refresh", user)).thenReturn("new-refresh");
+        when(refreshTokenService.rotate("old-refresh"))
+                .thenReturn(Optional.of(new RefreshTokenService.RotationResult(user, "new-refresh")));
         when(jwtService.generateAccessToken(user)).thenReturn("new-access");
 
         AuthResponse response = authService.refresh("old-refresh");
@@ -162,8 +163,8 @@ class AuthServiceTest {
     }
 
     @Test
-    void refreshRejectsUnknownToken() {
-        when(refreshTokenService.findUsernameByToken("bad-refresh")).thenReturn(Optional.empty());
+    void refreshRejectsUnknownOrRevokedRefreshToken() {
+        when(refreshTokenService.rotate("bad-refresh")).thenReturn(Optional.empty());
 
         assertThrows(InvalidCredentialsException.class, () -> authService.refresh("bad-refresh"));
         verifyNoInteractions(userRepository);

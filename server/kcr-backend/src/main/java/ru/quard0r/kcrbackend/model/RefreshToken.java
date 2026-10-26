@@ -15,7 +15,7 @@ public class RefreshToken {
     private long id;
 
     @Column(nullable = false, unique = true)
-    private String token;
+    private String tokenHash;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = false)
@@ -23,4 +23,7 @@ public class RefreshToken {
 
     @Column(name = "expiry_date", nullable = false)
     private Instant expiryDate;
+
+    @Column(name = "rotated_date")
+    private Instant rotatedDate;
 }
