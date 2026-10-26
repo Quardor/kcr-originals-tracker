@@ -5,6 +5,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
@@ -27,6 +28,9 @@ class AuthFlowIntegrationTest {
     @Autowired
     private MockMvc mockMvc;
 
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
     @Test
     void fullAuthFlow() throws Exception {
         String username = "ituser-" + UUID.randomUUID();
@@ -42,6 +46,7 @@ class AuthFlowIntegrationTest {
         String refreshToken = extractField(registerBody, "refreshToken");
         assertNotEquals("", accessToken);
         assertNotEquals("", refreshToken);
+        assertEquals(0, countByTokenHash(refreshToken));
 
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -61,8 +66,10 @@ class AuthFlowIntegrationTest {
         mockMvc.perform(get("/api/persons").header("Authorization", "Bearer " + accessToken))
                 .andExpect(status().isNotFound());
 
+        // Without a configured AuthenticationEntryPoint Spring Security answers 403, not 401;
+        // a unified 401 error contract is review item 7 (PROJECT_CONTEXT.md §10).
         mockMvc.perform(get("/api/persons"))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isForbidden());
 
         MvcResult refreshed = mockMvc.perform(post("/api/auth/refresh")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -71,11 +78,25 @@ class AuthFlowIntegrationTest {
                 .andReturn();
         String newRefreshToken = extractField(refreshed.getResponse().getContentAsString(), "refreshToken");
         assertNotEquals(refreshToken, newRefreshToken);
+        assertEquals(0, countByTokenHash(refreshToken));
 
         mockMvc.perform(post("/api/auth/refresh")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"refreshToken\":\"" + refreshToken + "\"}"))
                 .andExpect(status().isUnauthorized());
+
+        // The family is revoked: the freshly issued token dies together with the reused one.
+        mockMvc.perform(post("/api/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"refreshToken\":\"" + newRefreshToken + "\"}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    private int countByTokenHash(String tokenHash) {
+        return jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM refresh_tokens WHERE token_hash = ?",
+                Integer.class,
+                tokenHash);
     }
 
     private String extractField(String json, String field) {

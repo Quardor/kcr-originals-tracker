@@ -9,7 +9,6 @@ import ru.quard0r.kcrbackend.dto.request.RegisterRequest;
 import ru.quard0r.kcrbackend.dto.response.AuthResponse;
 import ru.quard0r.kcrbackend.exception.CredentialsAlreadyExistsException;
 import ru.quard0r.kcrbackend.exception.InvalidCredentialsException;
-import ru.quard0r.kcrbackend.exception.UserNotFoundException;
 import ru.quard0r.kcrbackend.model.Role;
 import ru.quard0r.kcrbackend.model.User;
 import ru.quard0r.kcrbackend.repository.UserRepository;
@@ -40,14 +39,12 @@ public class AuthService {
             throw new CredentialsAlreadyExistsException("Email already taken");
         }
 
-        User user = User.builder()
+        User user = userRepository.save(User.builder()
                 .username(request.username())
                 .password(passwordEncoder.encode(request.password()))
                 .email(email)
                 .role(Role.OPERATOR)
-                .build();
-
-        userRepository.save(user);
+                .build());
         return issueTokens(user);
     }
 
@@ -64,26 +61,20 @@ public class AuthService {
         return issueTokens(user);
     }
 
-    @Transactional
     public AuthResponse refresh(String refreshToken) {
-        String username = refreshTokenService.findUsernameByToken(refreshToken)
+        RefreshTokenService.RotationResult rotation = refreshTokenService.rotate(refreshToken)
                 .orElseThrow(() -> new InvalidCredentialsException(INVALID_REFRESH_TOKEN_MESSAGE));
 
-        User user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new UserNotFoundException("User not found"));
-
-        String newRefreshToken = refreshTokenService.rotate(refreshToken, user);
-
         return AuthResponse.builder()
-                .accessToken(jwtService.generateAccessToken(user))
-                .refreshToken(newRefreshToken)
+                .accessToken(jwtService.generateAccessToken(rotation.user()))
+                .refreshToken(rotation.refreshToken())
                 .build();
     }
 
     private AuthResponse issueTokens(User user) {
         return AuthResponse.builder()
                 .accessToken(jwtService.generateAccessToken(user))
-                .refreshToken(refreshTokenService.createRefreshToken(user.getUsername()))
+                .refreshToken(refreshTokenService.createRefreshToken(user))
                 .build();
     }
 
