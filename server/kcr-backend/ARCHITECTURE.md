@@ -153,17 +153,32 @@ RuntimeException
 
 ## 7. Конфигурация
 
-`src/main/resources/application.properties`:
+Конфигурация — `src/main/resources/application.yaml` с профилями `dev`/`prod`
+(2026-10-26, закрыт п. 5 §10 — секреты вынесены из VCS):
 
-| Ключ | Значение по умолчанию | Назначение |
+- `application.yaml` — общая часть: имя приложения, JPA (`ddl-auto=validate`, OSIV выключен),
+  сроки токенов; `spring.profiles.default=dev` — без явного профиля (`bootRun`, тесты)
+  активен `dev`.
+- `application-dev.yaml` — локальная БД (`jdbc:postgresql://localhost:5432/postgres`,
+  пользователь по умолчанию `myuser`); секреты — из окружения либо `.env` (см. ниже).
+- `application-prod.yaml` — подключение (`DB_URL`, `DB_USERNAME`, `DB_PASSWORD`) и
+  `JWT_SECRET` строго из окружения, значений по умолчанию нет: при незаданных переменных
+  приложение не стартует (fail-fast).
+
+Секреты в репозитории не хранятся и подставляются плейсхолдерами из переменных окружения:
+
+| Переменная | Профили | Назначение |
 |---|---|---|
-| `spring.datasource.url` | `jdbc:postgresql://localhost:5432/postgres` | локальная БД |
-| `spring.datasource.username/password` | `myuser` / `mypassword` | учётка БД |
-| `spring.jpa.hibernate.ddl-auto` | `validate` | Hibernate только сверяет сущности со схемой |
-| `spring.jpa.open-in-view` | `false` | OSIV выключен |
-| `jwt.secret` | dev-значение | HMAC-ключ, ≥ 32 байт |
-| `jwt.access-expiration` | `900000` (15 мин) | срок access-токена, мс |
-| `jwt.refresh-expiration` | `604800000` (7 дней) | срок refresh-токена, мс |
+| `DB_PASSWORD` | dev, prod | пароль БД |
+| `JWT_SECRET` | dev, prod | HMAC-ключ для подписи JWT, ≥ 32 байт |
+| `DB_URL` | prod | JDBC-URL БД |
+| `DB_USERNAME` | prod; в dev опциональна (по умолчанию `myuser`) | пользователь БД |
+
+Для локальной разработки секреты кладутся в `server/kcr-backend/.env` (копия шаблона
+`.env.example`; сам `.env` в `.gitignore`). Профиль `dev` подключает его через
+`spring.config.import=optional:file:.env[.properties]` — это properties-файл вида
+`KEY=VALUE`, читаемый относительно рабочей директории (`bootRun` и тесты запускаются
+из каталога модуля). Переменные окружения приоритетнее значений из `.env`.
 
 Схема БД управляется Flyway: SQL-миграции в `src/main/resources/db/migration` (`V1__init.sql`,
 `V2__refresh_token_reuse_detection.sql`, далее `V3__…`) применяются при старте приложения до
@@ -178,7 +193,7 @@ RuntimeException
 # из каталога server/kcr-backend
 ./gradlew build          # сборка + тесты
 ./gradlew test           # только тесты
-./gradlew bootRun        # запуск приложения (нужен PostgreSQL на localhost:5432)
+./gradlew bootRun        # запуск приложения (нужны PostgreSQL на localhost:5432 и .env, см. §7)
 ```
 
 ## 9. Текущее состояние (актуально на 2026-10-26)
@@ -204,7 +219,15 @@ RuntimeException
   `rotate(rawToken) → Optional<RotationResult>`, см. §5); `./gradlew build` снова проходит
   (19 тестов);
 - документация и `.gitignore` — в git (2026-10-26, закрыт п. 4 §10): этот файл закоммичен,
-  `.gitignore` больше не игнорирует сам себя.
+  `.gitignore` больше не игнорирует сам себя;
+- п. 5 §10 закрыт (2026-10-26, секреты вне VCS + профили конфигурации): конфигурация
+  переведена с `application.properties` на `application.yaml` + профили `application-dev.yaml`
+  / `application-prod.yaml` (`spring.profiles.default=dev`); `DB_PASSWORD`, `JWT_SECRET`,
+  `DB_URL`, `DB_USERNAME` разрешаются только из окружения (в prod — без дефолтов, fail-fast);
+  для dev секреты — в `.env` вне git (шаблон `.env.example`, подключение через
+  `spring.config.import=optional:file:.env[.properties]`, см. §7); избыточный
+  `spring.datasource.driver-class-name` удалён (выводится из URL); `./gradlew build`
+  проходит (19 тестов).
 
 Выявленные проблемы и требуемые изменения собраны в §10 (архитектурное ревью от 2026-10-24);
 ранее перечислявшиеся здесь «известные особенности» включены туда.
@@ -220,10 +243,6 @@ RuntimeException
 
 ### P0 — критично (закрыть до появления реальных пользователей)
 
-5. **Секреты вне VCS + профили конфигурации.** Пароль БД и `jwt.secret` захардкожены в
-   `application.properties`. Перейти на `application.yaml` + профили `dev`/`prod`; секреты —
-   только через окружение (`${DB_PASSWORD}`, `${JWT_SECRET}`); для локальной разработки — `.env`
-   вне git либо `spring-boot-docker-compose`.
 6. **Timing-атака в `AuthService.login`.** Для несуществующего пользователя bcrypt-сверка
    пропускается — ответ заметно быстрее, чем при неверном пароле, что позволяет перечислять
    usernames по времени. Выполнять холостую сверку с константным заведомо неверным хешем при
