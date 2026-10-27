@@ -36,7 +36,7 @@ class AuthFlowIntegrationTest {
         String username = "ituser-" + UUID.randomUUID();
         String password = "password123";
 
-        MvcResult register = mockMvc.perform(post("/api/auth/register")
+        MvcResult register = mockMvc.perform(post("/api/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}"))
                 .andExpect(status().isCreated())
@@ -48,17 +48,17 @@ class AuthFlowIntegrationTest {
         assertNotEquals("", refreshToken);
         assertEquals(0, countByTokenHash(refreshToken));
 
-        mockMvc.perform(post("/api/auth/login")
+        mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}"))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(post("/api/auth/login")
+        mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"" + username + "\",\"password\":\"wrong-password\"}"))
                 .andExpect(status().isUnauthorized());
 
-        mockMvc.perform(post("/api/auth/register")
+        mockMvc.perform(post("/api/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}"))
                 .andExpect(status().isConflict());
@@ -66,12 +66,10 @@ class AuthFlowIntegrationTest {
         mockMvc.perform(get("/api/persons").header("Authorization", "Bearer " + accessToken))
                 .andExpect(status().isNotFound());
 
-        // Without a configured AuthenticationEntryPoint Spring Security answers 403, not 401;
-        // a unified 401 error contract is review item 7 (PROJECT_CONTEXT.md §10).
         mockMvc.perform(get("/api/persons"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
 
-        MvcResult refreshed = mockMvc.perform(post("/api/auth/refresh")
+        MvcResult refreshed = mockMvc.perform(post("/api/v1/auth/refresh")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"refreshToken\":\"" + refreshToken + "\"}"))
                 .andExpect(status().isOk())
@@ -80,13 +78,13 @@ class AuthFlowIntegrationTest {
         assertNotEquals(refreshToken, newRefreshToken);
         assertEquals(0, countByTokenHash(refreshToken));
 
-        mockMvc.perform(post("/api/auth/refresh")
+        mockMvc.perform(post("/api/v1/auth/refresh")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"refreshToken\":\"" + refreshToken + "\"}"))
                 .andExpect(status().isUnauthorized());
 
         // The family is revoked: the freshly issued token dies together with the reused one.
-        mockMvc.perform(post("/api/auth/refresh")
+        mockMvc.perform(post("/api/v1/auth/refresh")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"refreshToken\":\"" + newRefreshToken + "\"}"))
                 .andExpect(status().isUnauthorized());
