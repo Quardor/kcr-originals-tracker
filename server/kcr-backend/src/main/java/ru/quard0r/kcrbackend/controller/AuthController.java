@@ -15,7 +15,7 @@ import ru.quard0r.kcrbackend.dto.response.AuthResponse;
 import ru.quard0r.kcrbackend.service.AuthService;
 
 @RestController
-@RequestMapping("/api/auth")
+@RequestMapping("/api/v1/auth")
 @RequiredArgsConstructor
 public class AuthController {
 

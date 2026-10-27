@@ -7,6 +7,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import ru.quard0r.kcrbackend.dto.response.ErrorResponse;
 import ru.quard0r.kcrbackend.exception.base.HttpException;
@@ -37,6 +38,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler
     private ResponseEntity<ErrorResponse> exceptionHandler(NoResourceFoundException e) {
         return new ResponseEntity<>(new ErrorResponse("Resource not found"), HttpStatus.NOT_FOUND);
+    }
+
+    @ExceptionHandler
+    private ResponseEntity<ErrorResponse> exceptionHandler(MethodArgumentTypeMismatchException e) {
+        return new ResponseEntity<>(new ErrorResponse("Invalid request parameter"), HttpStatus.BAD_REQUEST);
     }
 
     @ExceptionHandler
