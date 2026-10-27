@@ -114,15 +114,21 @@ controller → service → repository → model
   не по контракту `ErrorResponse` (единый контракт — §10, п. 7).
 - Публичные маршруты: `/api/auth/**`; всё остальное — только аутентифицированным.
 - Включена method security (`@EnableMethodSecurity`) — можно использовать `@PreAuthorize` по ролям.
-- `CustomUserDetailsService` адаптирует `User` к `UserDetails` (роль → authority).
+- `CustomUserDetailsService` возвращает `CustomUserDetails` — record-обёртку над сущностью `User`
+  (роль → authority `ROLE_<ROLE>`); она же — principal в `SecurityContext` после фильтра и в
+  результате `authenticate(...)`.
 
 Сценарии (реализованы в `AuthService`; `register`/`login` — `@Transactional`, `refresh` — нет,
 см. ниже):
 - `register` — проверка уникальности username и email (нормализованного: blank → null) →
   сохранение (BCrypt, роль OPERATOR) → выдача пары токенов. Конкурентный конфликт уникальности в БД
   ловится `GlobalExceptionHandler` как 409.
-- `login` — поиск по username → сверка пароля → выдача пары токенов. Неизвестный пользователь и
-  неверный пароль дают одинаковый 401 "Invalid credentials".
+- `login` — через `authenticationManager.authenticate(...)` (бин в `SecurityConfig`;
+  `DaoAuthenticationProvider` собирается из бинов `CustomUserDetailsService` + `PasswordEncoder`):
+  любой `AuthenticationException` → единый 401 "Invalid credentials". Тайминг-атака на
+  перечисление usernames закрыта самим провайдером: при `UsernameNotFoundException` он выполняет
+  холостую bcrypt-сверку (`mitigateAgainstTimingAttack`), время ответа не выдаёт существование
+  username. Сущность для выдачи токенов достаётся из principal (`CustomUserDetails.user()`).
 - `refresh` — ротация одним методом `RefreshTokenService.rotate(rawToken)` (SELECT по хешу с
   JOIN FETCH пользователя): неизвестный и просроченный токен → 401 (просроченный удаляется),
   повторное предъявление ротированного токена (reuse-detection, паттерн token family) → отзыв
@@ -228,6 +234,15 @@ RuntimeException
   `spring.config.import=optional:file:.env[.properties]`, см. §7); избыточный
   `spring.datasource.driver-class-name` удалён (выводится из URL); `./gradlew build`
   проходит (19 тестов).
+- пп. 6 и 17 §10 закрыты (2026-10-27, login через `AuthenticationManager`, PR #3 из
+  `feature/auth`): `AuthService.login` переведён с ручного `findByUsername` + `matches` на
+  `authenticationManager.authenticate(...)`; `DaoAuthenticationProvider` собирается из бинов
+  `CustomUserDetailsService` + `PasswordEncoder`, любой `AuthenticationException` → единый 401,
+  а при неизвестном пользователе провайдер сам выполняет холостую bcrypt-сверку — время ответа
+  больше не выдаёт существование username (тайминг-атака закрыта); бин `AuthenticationManager`
+  из `SecurityConfig` теперь используется; `CustomUserDetailsService` возвращает record
+  `CustomUserDetails` с сущностью `User` внутри (principal); `./gradlew build` проходит
+  (19 тестов).
 
 Выявленные проблемы и требуемые изменения собраны в §10 (архитектурное ревью от 2026-10-24);
 ранее перечислявшиеся здесь «известные особенности» включены туда.
@@ -240,13 +255,6 @@ RuntimeException
 пронумерованы сквозной нумерацией, порядок внутри группы — порядок внедрения. Закрывая пункт,
 обнови затронутые разделы (§1–§9) в том же изменении и удали закрытый пункт отсюда;
 нумерация оставшихся пунктов не сдвигается — номера используются как ссылки из других разделов.
-
-### P0 — критично (закрыть до появления реальных пользователей)
-
-6. **Timing-атака в `AuthService.login`.** Для несуществующего пользователя bcrypt-сверка
-   пропускается — ответ заметно быстрее, чем при неверном пароле, что позволяет перечислять
-   usernames по времени. Выполнять холостую сверку с константным заведомо неверным хешем при
-   любом исходе поиска пользователя.
 
 ### P1 — до первого продакшена
 
@@ -286,9 +294,6 @@ RuntimeException
 16. **Нормализация email до валидации.** `@Email` отклоняет адрес с краевыми пробелами, хотя
     сервис их тримит; тримить до валидации (собственный constraint-валидатор либо нормализация
     на входе контроллера).
-17. **`AuthenticationManager`** — либо использовать в `login`
-    (`authenticationManager.authenticate(...)`), либо удалить бин из `SecurityConfig`: сейчас
-    объявлен и не используется.
 
 ### P2 — качество и готовность к нагрузке
 
