@@ -83,7 +83,7 @@ class RefreshTokenServiceTest {
     void rotateMarksOldTokenRotatedAndIssuesNewOne() {
         User user = user();
         RefreshToken oldToken = token(user, Instant.now().plusSeconds(600), null);
-        when(refreshTokenRepository.findByTokenHash(sha256Hex("raw-token")))
+        when(refreshTokenRepository.findByTokenHashForUpdate(sha256Hex("raw-token")))
                 .thenReturn(Optional.of(oldToken));
         when(refreshTokenRepository.save(any(RefreshToken.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -103,7 +103,7 @@ class RefreshTokenServiceTest {
 
     @Test
     void rotateRejectsUnknownTokenWithoutSideEffects() {
-        when(refreshTokenRepository.findByTokenHash(sha256Hex("unknown-token")))
+        when(refreshTokenRepository.findByTokenHashForUpdate(sha256Hex("unknown-token")))
                 .thenReturn(Optional.empty());
 
         assertTrue(refreshTokenService.rotate("unknown-token").isEmpty());
@@ -117,7 +117,7 @@ class RefreshTokenServiceTest {
     void rotateDeletesExpiredTokenAndRejectsIt() {
         User user = user();
         RefreshToken expired = token(user, Instant.now().minusSeconds(1), null);
-        when(refreshTokenRepository.findByTokenHash(sha256Hex("expired-token")))
+        when(refreshTokenRepository.findByTokenHashForUpdate(sha256Hex("expired-token")))
                 .thenReturn(Optional.of(expired));
 
         assertTrue(refreshTokenService.rotate("expired-token").isEmpty());
@@ -131,7 +131,7 @@ class RefreshTokenServiceTest {
     void rotateRevokesWholeTokenFamilyOnReuseOfRotatedToken() {
         User user = user();
         RefreshToken rotated = token(user, Instant.now().plusSeconds(600), Instant.now().minusSeconds(1));
-        when(refreshTokenRepository.findByTokenHash(sha256Hex("reused-token")))
+        when(refreshTokenRepository.findByTokenHashForUpdate(sha256Hex("reused-token")))
                 .thenReturn(Optional.of(rotated));
 
         assertTrue(refreshTokenService.rotate("reused-token").isEmpty());

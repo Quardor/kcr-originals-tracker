@@ -1,6 +1,7 @@
 package ru.quard0r.kcrbackend.service;
 
 import lombok.RequiredArgsConstructor;
+import org.hibernate.Hibernate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,7 +38,7 @@ public class RefreshTokenService {
     @Transactional
     public Optional<RotationResult> rotate(String rawRefreshToken) {
         Optional<RefreshToken> found = refreshTokenRepository
-                .findByTokenHash(sha256Hex(rawRefreshToken));
+                .findByTokenHashForUpdate(sha256Hex(rawRefreshToken));
         if (found.isEmpty()) {
             return Optional.empty();
         }
@@ -53,8 +54,9 @@ public class RefreshTokenService {
         }
 
         refreshToken.setRotatedDate(Instant.now());
-        String newRawToken = issueRefreshToken(refreshToken.getUser());
-        return Optional.of(new RotationResult(refreshToken.getUser(), newRawToken));
+        User user = Hibernate.unproxy(refreshToken.getUser(), User.class);
+        String newRawToken = issueRefreshToken(user);
+        return Optional.of(new RotationResult(user, newRawToken));
     }
 
     private String issueRefreshToken(User user) {

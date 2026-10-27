@@ -9,7 +9,14 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -88,6 +95,72 @@ class AuthFlowIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"refreshToken\":\"" + newRefreshToken + "\"}"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void concurrentRefreshWithSameTokenRotatesItExactlyOnce() throws Exception {
+        String username = "ituser-" + UUID.randomUUID();
+        String password = "password123";
+
+        MvcResult register = mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+        String refreshToken = extractField(register.getResponse().getContentAsString(), "refreshToken");
+
+        // With FOR UPDATE on the token row the outcome is the same under any interleaving:
+        // the first transaction commits the rotation, the rest see the rotated token and trip
+        // reuse detection, which revokes the family together with the winner's fresh token.
+        int threads = 4;
+        ExecutorService executor = Executors.newFixedThreadPool(threads);
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            List<Future<RefreshResponse>> results = new ArrayList<>();
+            for (int i = 0; i < threads; i++) {
+                results.add(executor.submit(() -> {
+                    start.await();
+                    var response = mockMvc.perform(post("/api/v1/auth/refresh")
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .content("{\"refreshToken\":\"" + refreshToken + "\"}"))
+                            .andReturn()
+                            .getResponse();
+                    return new RefreshResponse(response.getStatus(), response.getContentAsString());
+                }));
+            }
+            start.countDown();
+
+            String winnerToken = null;
+            int okCount = 0;
+            for (Future<RefreshResponse> result : results) {
+                RefreshResponse response = result.get(30, TimeUnit.SECONDS);
+                if (response.status() == 200) {
+                    okCount++;
+                    winnerToken = extractField(response.body(), "refreshToken");
+                } else {
+                    assertEquals(401, response.status());
+                }
+            }
+            assertEquals(1, okCount);
+            assertNotEquals("", winnerToken);
+
+            // The losers' reuse detection revoked the whole family, winner's fresh token included.
+            mockMvc.perform(post("/api/v1/auth/refresh")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"refreshToken\":\"" + winnerToken + "\"}"))
+                    .andExpect(status().isUnauthorized());
+        } finally {
+            executor.shutdownNow();
+        }
+
+        // The user recovers by logging in again.
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}"))
+                .andExpect(status().isOk());
+    }
+
+    private record RefreshResponse(int status, String body) {
     }
 
     private int countByTokenHash(String tokenHash) {
