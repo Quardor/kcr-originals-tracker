@@ -1,6 +1,10 @@
 package ru.quard0r.kcrbackend.service;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -12,6 +16,7 @@ import ru.quard0r.kcrbackend.exception.InvalidCredentialsException;
 import ru.quard0r.kcrbackend.model.Role;
 import ru.quard0r.kcrbackend.model.User;
 import ru.quard0r.kcrbackend.repository.UserRepository;
+import ru.quard0r.kcrbackend.security.CustomUserDetails;
 import ru.quard0r.kcrbackend.security.JwtService;
 
 @Service
@@ -24,6 +29,8 @@ public class AuthService {
     private final UserRepository userRepository;
 
     private final PasswordEncoder passwordEncoder;
+
+    private final AuthenticationManager authenticationManager;
 
     private final RefreshTokenService refreshTokenService;
     private final JwtService jwtService;
@@ -50,14 +57,14 @@ public class AuthService {
 
     @Transactional
     public AuthResponse login(LoginRequest request) {
-        User user = userRepository
-                .findByUsername(request.username())
-                .orElseThrow(() -> new InvalidCredentialsException(INVALID_CREDENTIALS_MESSAGE));
-
-        if (!passwordEncoder.matches(request.password(), user.getPassword())) {
+        Authentication authentication;
+        try {
+            authentication = authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(request.username(), request.password()));
+        } catch (AuthenticationException e) {
             throw new InvalidCredentialsException(INVALID_CREDENTIALS_MESSAGE);
         }
-
+        User user = ((CustomUserDetails) authentication.getPrincipal()).user();
         return issueTokens(user);
     }
 

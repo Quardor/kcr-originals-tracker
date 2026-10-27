@@ -6,6 +6,11 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import ru.quard0r.kcrbackend.dto.request.LoginRequest;
 import ru.quard0r.kcrbackend.dto.request.RegisterRequest;
@@ -15,6 +20,7 @@ import ru.quard0r.kcrbackend.exception.InvalidCredentialsException;
 import ru.quard0r.kcrbackend.model.Role;
 import ru.quard0r.kcrbackend.model.User;
 import ru.quard0r.kcrbackend.repository.UserRepository;
+import ru.quard0r.kcrbackend.security.CustomUserDetails;
 import ru.quard0r.kcrbackend.security.JwtService;
 
 import java.util.Optional;
@@ -40,6 +46,9 @@ class AuthServiceTest {
 
     @Mock
     private PasswordEncoder passwordEncoder;
+
+    @Mock
+    private AuthenticationManager authenticationManager;
 
     @Mock
     private RefreshTokenService refreshTokenService;
@@ -121,8 +130,10 @@ class AuthServiceTest {
     @Test
     void loginReturnsTokensForValidCredentials() {
         User user = user();
-        when(userRepository.findByUsername("user")).thenReturn(Optional.of(user));
-        when(passwordEncoder.matches(RAW_PASSWORD, HASHED_PASSWORD)).thenReturn(true);
+        CustomUserDetails principal = new CustomUserDetails(user);
+        UsernamePasswordAuthenticationToken authentication =
+                new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities());
+        when(authenticationManager.authenticate(any(Authentication.class))).thenReturn(authentication);
         when(jwtService.generateAccessToken(user)).thenReturn("access-token");
         when(refreshTokenService.createRefreshToken(user)).thenReturn("refresh-token");
 
@@ -134,19 +145,22 @@ class AuthServiceTest {
 
     @Test
     void loginRejectsUnknownUser() {
-        when(userRepository.findByUsername("ghost")).thenReturn(Optional.empty());
+        when(authenticationManager.authenticate(any(Authentication.class)))
+                .thenThrow(new UsernameNotFoundException("User not found: ghost"));
 
         assertThrows(InvalidCredentialsException.class,
                 () -> authService.login(new LoginRequest("ghost", RAW_PASSWORD)));
+        verifyNoInteractions(jwtService, refreshTokenService);
     }
 
     @Test
     void loginRejectsWrongPassword() {
-        when(userRepository.findByUsername("user")).thenReturn(Optional.of(user()));
-        when(passwordEncoder.matches(RAW_PASSWORD, HASHED_PASSWORD)).thenReturn(false);
+        when(authenticationManager.authenticate(any(Authentication.class)))
+                .thenThrow(new BadCredentialsException("Bad credentials"));
 
         assertThrows(InvalidCredentialsException.class,
                 () -> authService.login(new LoginRequest("user", RAW_PASSWORD)));
+        verifyNoInteractions(jwtService, refreshTokenService);
     }
 
     @Test
