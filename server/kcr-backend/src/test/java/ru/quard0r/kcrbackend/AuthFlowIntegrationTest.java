@@ -160,6 +160,51 @@ class AuthFlowIntegrationTest {
                 .andExpect(status().isOk());
     }
 
+    @Test
+    void logoutRevokesAllRefreshTokensAndRequiresAuthentication() throws Exception {
+        String username = "ituser-" + UUID.randomUUID();
+        String password = "password123";
+
+        MvcResult register = mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+        String accessToken = extractField(register.getResponse().getContentAsString(), "accessToken");
+        String registerRefreshToken = extractField(register.getResponse().getContentAsString(), "refreshToken");
+
+        // A second session of the same user: logout must kill both token families.
+        MvcResult login = mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        String loginRefreshToken = extractField(login.getResponse().getContentAsString(), "refreshToken");
+
+        mockMvc.perform(post("/api/v1/auth/logout"))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(post("/api/v1/auth/logout")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"refreshToken\":\"" + registerRefreshToken + "\"}"))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"refreshToken\":\"" + loginRefreshToken + "\"}"))
+                .andExpect(status().isUnauthorized());
+
+        // The user recovers by logging in again.
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}"))
+                .andExpect(status().isOk());
+    }
+
     private record RefreshResponse(int status, String body) {
     }
 

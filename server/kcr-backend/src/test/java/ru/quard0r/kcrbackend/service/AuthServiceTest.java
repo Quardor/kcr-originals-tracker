@@ -102,6 +102,15 @@ class AuthServiceTest {
     }
 
     @Test
+    void logoutRevokesAllRefreshTokensOfTheUser() {
+        User user = user();
+
+        authService.logout(user);
+
+        verify(refreshTokenService).revokeAllForUser(user);
+    }
+
+    @Test
     void registerRejectsTakenEmail() {
         when(userRepository.existsByUsername("newuser")).thenReturn(false);
         when(userRepository.existsByEmail("taken@mail.com")).thenReturn(true);

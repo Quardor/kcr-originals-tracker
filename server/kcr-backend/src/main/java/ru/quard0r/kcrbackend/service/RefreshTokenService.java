@@ -36,6 +36,16 @@ public class RefreshTokenService {
     }
 
     @Transactional
+    public long deleteExpired() {
+        return refreshTokenRepository.deleteByExpiryDateBefore(Instant.now());
+    }
+
+    @Transactional
+    public void revokeAllForUser(User user) {
+        refreshTokenRepository.deleteByUser(user);
+    }
+
+    @Transactional
     public Optional<RotationResult> rotate(String rawRefreshToken) {
         Optional<RefreshToken> found = refreshTokenRepository
                 .findByTokenHashForUpdate(sha256Hex(rawRefreshToken));

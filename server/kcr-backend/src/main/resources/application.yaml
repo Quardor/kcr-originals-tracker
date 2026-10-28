@@ -17,3 +17,7 @@ spring:
 jwt:
   access-expiration: 900000
   refresh-expiration: 604800000
+
+app:
+  cleanup:
+    refresh-token-cron: "0 0 4 * * *"

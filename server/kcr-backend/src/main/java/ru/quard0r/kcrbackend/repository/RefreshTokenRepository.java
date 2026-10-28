@@ -9,6 +9,7 @@ import org.springframework.data.repository.query.Param;
 import ru.quard0r.kcrbackend.model.RefreshToken;
 import ru.quard0r.kcrbackend.model.User;
 
+import java.time.Instant;
 import java.util.Optional;
 
 public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Long> {
@@ -25,4 +26,7 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Long
 
     @Modifying
     void deleteByTokenHash(String tokenHash);
+
+    @Modifying
+    long deleteByExpiryDateBefore(Instant expiryDateBefore);
 }

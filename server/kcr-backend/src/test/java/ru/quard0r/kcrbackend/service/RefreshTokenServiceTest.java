@@ -80,6 +80,18 @@ class RefreshTokenServiceTest {
     }
 
     @Test
+    void deleteExpiredDeletesEverythingBeforeNowAndReturnsCount() {
+        when(refreshTokenRepository.deleteByExpiryDateBefore(any(Instant.class))).thenReturn(3L);
+
+        long deleted = refreshTokenService.deleteExpired();
+
+        assertEquals(3L, deleted);
+        ArgumentCaptor<Instant> captor = ArgumentCaptor.forClass(Instant.class);
+        verify(refreshTokenRepository).deleteByExpiryDateBefore(captor.capture());
+        assertTrue(captor.getValue().isBefore(Instant.now().plusSeconds(1)));
+    }
+
+    @Test
     void rotateMarksOldTokenRotatedAndIssuesNewOne() {
         User user = user();
         RefreshToken oldToken = token(user, Instant.now().plusSeconds(600), null);
@@ -139,6 +151,15 @@ class RefreshTokenServiceTest {
         verify(refreshTokenRepository).deleteByUser(user);
         verify(refreshTokenRepository, never()).delete(rotated);
         verify(refreshTokenRepository, never()).save(any(RefreshToken.class));
+    }
+
+    @Test
+    void revokeAllForUserDeletesEveryTokenOfTheUser() {
+        User user = user();
+
+        refreshTokenService.revokeAllForUser(user);
+
+        verify(refreshTokenRepository).deleteByUser(user);
     }
 
     private static String sha256Hex(String raw) {

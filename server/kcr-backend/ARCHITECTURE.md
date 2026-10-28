@@ -65,6 +65,8 @@ ru.quard0r.kcrbackend
 │                             + enum'ы (Role, ClientType)
 ├── repository/             — Spring Data JPA репозитории (UserRepository, RefreshTokenRepository,
 │                             ClientRepository, DocumentTransferSnapshotRepository)
+├── scheduling/             — фоновые задачи (RefreshTokenCleanupJob — ежедневная очистка
+│                             просроченных refresh-токенов, см. §5)
 ├── security/               — JWT-инфраструктура (JwtService, JwtAuthenticationFilter,
 │                             CustomUserDetailsService, RestAuthenticationEntryPoint)
 └── service/                — бизнес-логика (AuthService, RefreshTokenService, ClientService)
@@ -110,6 +112,10 @@ controller → service → repository → model
 | user | User | @ManyToOne LAZY, not null |
 | expiryDate | Instant | not null |
 | rotatedDate | Instant | колонка `rotated_date`, опционален: null — активный токен, значение — уже ротирован (признак для reuse-detection, см. §5) |
+
+Индекс `idx_refresh_tokens_user_id (user_id)` (миграция `V5__refresh_tokens_user_id_index.sql`):
+Postgres не создаёт индексы на FK-колонки автоматически — без него отзыв семейства токенов
+(`deleteByUser`) и logout уходили в seq scan.
 
 ### Client (`clients`)
 Первая предметная сущность — карточка клиента, идентифицируемого кодом KCR. Код KCR — естественный
@@ -165,7 +171,8 @@ controller → service → repository → model
 
 Индекс `idx_document_transfer_snapshots_client_period_date (client_id, reporting_period,
 snapshot_date)` покрывает выборку динамики по клиенту/периоду и поиск последнего среза для
-наследования total (индекс на FK создаётся явно — Postgres не строит их автоматически, см. п. 9 §10).
+наследования total (индекс на FK создаётся явно — Postgres не строит их автоматически; то же
+для `refresh_tokens.user_id`, см. выше).
 
 ## 5. Аутентификация (JWT)
 
@@ -187,13 +194,14 @@ snapshot_date)` покрывает выборку динамики по клие
   переменной окружения `APP_CORS_ALLOWED_ORIGINS`). Разрешены методы GET/POST/PUT/PATCH/DELETE/OPTIONS
   и заголовки `Authorization`, `Content-Type`; credentials не включены (токен — в заголовке). Пустой
   список (по умолчанию) — кросс-доменные запросы не разрешены, same-origin работает без ограничений.
-- Публичные маршруты: `/api/v1/auth/**`; всё остальное — только аутентифицированным.
+- Публичные маршруты: `/api/v1/auth/**` — кроме `/api/v1/auth/logout` (матчер `authenticated()`
+  в `SecurityConfig` стоит раньше permitAll); всё остальное — только аутентифицированным.
 - Включена method security (`@EnableMethodSecurity`) — можно использовать `@PreAuthorize` по ролям.
 - `CustomUserDetailsService` возвращает `CustomUserDetails` — record-обёртку над сущностью `User`
   (роль → authority `ROLE_<ROLE>`); она же — principal в `SecurityContext` после фильтра и в
   результате `authenticate(...)`.
 
-Сценарии (реализованы в `AuthService`; `register`/`login` — `@Transactional`, `refresh` — нет,
+Сценарии (реализованы в `AuthService`; `register`/`login`/`logout` — `@Transactional`, `refresh` — нет,
 см. ниже):
 - `register` — проверка уникальности username и email (нормализованного: blank → null) →
   сохранение (BCrypt, роль OPERATOR) → выдача пары токенов. Конкурентный конфликт уникальности в БД
@@ -217,6 +225,18 @@ snapshot_date)` покрывает выборку динамики по клие
   помечается `rotated_date` и заменяется новым. `rotate` возвращает `Optional` и не бросает
   исключение изнутри транзакции, а `AuthService.refresh` намеренно без `@Transactional` — иначе
   откат транзакции по 401 отменял бы уже сделанный отзыв семейства.
+- `logout` — `POST /api/v1/auth/logout`, требует access-токен (иначе 401): пользователь берётся из
+  principal (`@AuthenticationPrincipal CustomUserDetails`), отзываются **все** refresh-токены
+  пользователя (`RefreshTokenService.revokeAllForUser` → `deleteByUser`) — logout закрывает все
+  устройства/сессии, ответ 204. Выданный access-токен остаётся технически валиден до истечения
+  срока (≤ 15 мин): схема stateless, серверного блок-листа токенов нет — это осознанный компромисс
+  (блок-лист потребовал бы jti/subject по п. 13 §10 и общего состояния).
+
+Очистка: просроченные токены (в том числе уже ротированные) удаляет `RefreshTokenCleanupJob`
+(`scheduling/`, `@EnableScheduling` на `KcrBackendApplication`) — `@Scheduled`-cron
+`app.cleanup.refresh-token-cron` (по умолчанию `0 0 4 * * *`, локальная зона сервера) вызывает
+`RefreshTokenService.deleteExpired()` → `deleteByExpiryDateBefore(now)`; без job таблица
+`refresh_tokens` росла бы бесконечно.
 
 ## 6. Иерархия исключений
 
@@ -265,7 +285,9 @@ RuntimeException
 | `DB_USERNAME` | prod; в dev опциональна (по умолчанию `myuser`) | пользователь БД |
 
 Прочие прикладные свойства: `app.cors.allowed-origins` (список через запятую; dev —
-`http://localhost:5173`, переопределяется окружением `APP_CORS_ALLOWED_ORIGINS`, см. §5).
+`http://localhost:5173`, переопределяется окружением `APP_CORS_ALLOWED_ORIGINS`, см. §5) и
+`app.cleanup.refresh-token-cron` (cron суточной очистки refresh-токенов, общая часть
+`application.yaml`, по умолчанию `0 0 4 * * *`, см. §5).
 
 Для локальной разработки секреты кладутся в `server/kcr-backend/.env` (копия шаблона
 `.env.example`; сам `.env` в `.gitignore`). Профиль `dev` подключает его через
@@ -289,7 +311,7 @@ RuntimeException
 ./gradlew bootRun        # запуск приложения (нужны PostgreSQL на localhost:5432 и .env, см. §7)
 ```
 
-## 9. Текущее состояние (актуально на 2026-10-26)
+## 9. Текущее состояние (актуально на 2026-10-28)
 
 Готово:
 - каркас приложения, SecurityConfig (stateless JWT, `/api/auth/**` публичные), JWT-инфраструктура
@@ -411,6 +433,23 @@ RuntimeException
   (`Hibernate.unproxy`, OSIV выключен). Тесты: конкурентный сценарий в
   `AuthFlowIntegrationTest` (4 потока × один токен: ровно один 200, остальные 401, токен
   победителя отозван, перелогин работает); `./gradlew build` проходит (50 тестов).
+- п. 9 §10 закрыт (2026-10-28, ветка `feature/auth`): очистка просроченных refresh-токенов +
+  индекс FK. `@EnableScheduling` на `KcrBackendApplication`; `RefreshTokenCleanupJob`
+  (пакет `scheduling/`) по cron `app.cleanup.refresh-token-cron` (общая часть
+  `application.yaml`, по умолчанию `0 0 4 * * *`) раз в сутки вызывает
+  `RefreshTokenService.deleteExpired()` → новый метод репозитория
+  `deleteByExpiryDateBefore(now)` (возвращает число удалённых, job логирует его). Индекс
+  `idx_refresh_tokens_user_id` — `@Table(indexes=…)` на `RefreshToken` + миграция
+  `V5__refresh_tokens_user_id_index.sql` (dev-БД: применена, индекс проверен). Тесты:
+  `RefreshTokenServiceTest` (делегирование), `RefreshTokenCleanupJobTest` (2).
+- п. 10 §10 закрыт (2026-10-28, ветка `feature/auth`): `POST /api/v1/auth/logout` — требует
+  access-токен (отдельный матчер `authenticated()` в `SecurityConfig` перед permitAll
+  `/api/v1/auth/**`), пользователь — из `@AuthenticationPrincipal CustomUserDetails`, отзываются
+  все refresh-токены (`AuthService.logout` → `RefreshTokenService.revokeAllForUser` →
+  задействован `deleteByUser`), ответ 204; access-токен живёт до истечения срока (stateless,
+  блок-листа нет, см. §5). Тесты: `AuthServiceTest`/`RefreshTokenServiceTest` (делегирование),
+  e2e-сценарий в `AuthFlowIntegrationTest` (401 без токена, 204 с токеном, оба refresh-токена
+  двух сессий мертвы, повторный login работает); `./gradlew build` проходит (56 тестов).
 
 Выявленные проблемы и требуемые изменения собраны в §10 (архитектурное ревью от 2026-10-24);
 ранее перечислявшиеся здесь «известные особенности» включены туда.
@@ -426,12 +465,6 @@ RuntimeException
 
 ### P1 — до первого продакшена
 
-9. **Очистка просроченных токенов + индекс.** `@EnableScheduling` + `@Scheduled`-job
-   (`deleteByExpiryDateBefore(now)`, раз в сутки) — сейчас таблица растёт бесконечно. Индекс на
-   `refresh_tokens.user_id` (`@Table(indexes = @Index(...))` + миграция): Postgres не создаёт
-   индексы на FK автоматически, `deleteByUser` без индекса уходит в seq scan.
-10. **Logout-эндпоинт** (`POST /api/v1/auth/logout`): удалять refresh-токены текущего пользователя
-    (`deleteByToken`/`deleteByUser` в `RefreshTokenRepository` уже объявлены, но не задействованы).
 12. **Антибрутфорс.** Rate limiting на `/api/v1/auth/login|register` (Bucket4j, лимит на пару
     username+IP) + блокировка аккаунта после N неудачных попыток (`failed_attempts`/`locked_until`
     на `User`, учитывать при загрузке в `CustomUserDetailsService`).

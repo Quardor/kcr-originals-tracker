@@ -78,6 +78,11 @@ public class AuthService {
                 .build();
     }
 
+    @Transactional
+    public void logout(User user) {
+        refreshTokenService.revokeAllForUser(user);
+    }
+
     private AuthResponse issueTokens(User user) {
         return AuthResponse.builder()
                 .accessToken(jwtService.generateAccessToken(user))

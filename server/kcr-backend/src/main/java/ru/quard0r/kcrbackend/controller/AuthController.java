@@ -4,6 +4,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -12,6 +13,7 @@ import ru.quard0r.kcrbackend.dto.request.LoginRequest;
 import ru.quard0r.kcrbackend.dto.request.RefreshRequest;
 import ru.quard0r.kcrbackend.dto.request.RegisterRequest;
 import ru.quard0r.kcrbackend.dto.response.AuthResponse;
+import ru.quard0r.kcrbackend.security.CustomUserDetails;
 import ru.quard0r.kcrbackend.service.AuthService;
 
 @RestController
@@ -37,5 +39,12 @@ public class AuthController {
     public ResponseEntity<AuthResponse> refresh(@Valid @RequestBody RefreshRequest request)
     {
         return ResponseEntity.ok(authService.refresh(request.refreshToken()));
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(@AuthenticationPrincipal CustomUserDetails userDetails)
+    {
+        authService.logout(userDetails.user());
+        return ResponseEntity.noContent().build();
     }
 }
