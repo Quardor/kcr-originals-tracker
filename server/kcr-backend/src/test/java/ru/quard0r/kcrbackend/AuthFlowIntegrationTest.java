@@ -2,6 +2,7 @@ package ru.quard0r.kcrbackend;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
@@ -37,6 +38,12 @@ class AuthFlowIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Value("${app.security.auth-rate-limit.capacity}")
+    private int rateLimitCapacity;
+
+    @Value("${app.security.account-lockout.max-failed-attempts}")
+    private int maxFailedAttempts;
 
     @Test
     void fullAuthFlow() throws Exception {
@@ -203,6 +210,71 @@ class AuthFlowIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}"))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void accountLockoutBlocksLoginUntilLockExpires() throws Exception {
+        String username = "ituser-" + UUID.randomUUID();
+        String password = "password123";
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}"))
+                .andExpect(status().isCreated());
+
+        for (int i = 0; i < maxFailedAttempts; i++) {
+            mockMvc.perform(post("/api/v1/auth/login")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"username\":\"" + username + "\",\"password\":\"wrong-password\"}"))
+                    .andExpect(status().isUnauthorized());
+        }
+
+        // The correct password is rejected too: the account is locked, the response stays
+        // the same single 401 as for wrong credentials (no reason is disclosed).
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}"))
+                .andExpect(status().isUnauthorized());
+
+        // Expire the lock directly instead of waiting out the configured duration.
+        jdbcTemplate.update(
+                "UPDATE users SET locked_until = now() - interval '1 second' WHERE username = ?", username);
+
+        MvcResult recovered = mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        assertNotEquals("", extractField(recovered.getResponse().getContentAsString(), "accessToken"));
+
+        Integer failedAttempts = jdbcTemplate.queryForObject(
+                "SELECT failed_attempts FROM users WHERE username = ?", Integer.class, username);
+        assertEquals(0, failedAttempts);
+    }
+
+    @Test
+    void loginRateLimitReturns429WhenBucketIsExhausted() throws Exception {
+        String username = "ituser-" + UUID.randomUUID();
+        String password = "password123";
+
+        // The register request consumes the first token of the username+IP bucket.
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}"))
+                .andExpect(status().isCreated());
+
+        int allowedLogins = rateLimitCapacity - 1;
+        for (int i = 0; i < allowedLogins; i++) {
+            mockMvc.perform(post("/api/v1/auth/login")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"username\":\"" + username + "\",\"password\":\"wrong-password\"}"))
+                    .andExpect(status().isUnauthorized());
+        }
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"" + username + "\",\"password\":\"wrong-password\"}"))
+                .andExpect(status().isTooManyRequests());
     }
 
     private record RefreshResponse(int status, String body) {

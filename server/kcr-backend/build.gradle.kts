@@ -34,6 +34,9 @@ dependencies {
     runtimeOnly("io.jsonwebtoken:jjwt-impl:0.12.6")
     runtimeOnly("io.jsonwebtoken:jjwt-jackson:0.12.6")
 
+    implementation("com.bucket4j:bucket4j_jdk17-core:8.21.0")
+    implementation("com.github.ben-manes.caffeine:caffeine")
+
     implementation("org.apache.poi:poi-ooxml:5.5.1")
 
     testImplementation("org.springframework.boot:spring-boot-starter-data-jpa-test")

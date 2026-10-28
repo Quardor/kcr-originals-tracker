@@ -33,6 +33,7 @@
 | Миграции | Flyway (`spring-boot-flyway` + `flyway-database-postgresql`) | из BOM Boot |
 | Безопасность | Spring Security (stateless, JWT) | из BOM Boot |
 | JWT | jjwt (api/impl/jackson) | 0.12.6 |
+| Rate limiting | Bucket4j (`bucket4j_jdk17-core`) + Caffeine (кэш бакетов, версия из BOM Boot) | 8.21.0 |
 | Бойлерплейт | Lombok | из BOM Boot |
 | Excel-импорт | Apache POI (`poi-ooxml`) | 5.5.1 |
 | Тесты | JUnit 5 (spring-boot-starter-*-test) | из BOM Boot |
@@ -69,7 +70,10 @@ ru.quard0r.kcrbackend
 │                             просроченных refresh-токенов, см. §5)
 ├── security/               — JWT-инфраструктура (JwtService, JwtAuthenticationFilter,
 │                             CustomUserDetailsService, RestAuthenticationEntryPoint)
-└── service/                — бизнес-логика (AuthService, RefreshTokenService, ClientService)
+│                             + AuthRateLimiter — антибрутфорс-лимитер login/register (см. §5)
+└── service/                — бизнес-логика (AuthService, RefreshTokenService,
+                              AccountLockoutService — счётчик неудачных входов и блокировка
+                              аккаунта, ClientService)
 ```
 
 Направление зависимостей строго сверху вниз:
@@ -96,6 +100,8 @@ controller → service → repository → model
 | password | String | not null (BCrypt-хеш) |
 | email | String | unique, опционален |
 | role | Role | not null, `@Enumerated(EnumType.STRING)` |
+| failedAttempts | int | колонка `failed_attempts`, not null, default 0 — счётчик неудачных попыток входа (антибрутфорс, §5; `V6__user_account_lockout.sql`) |
+| lockedUntil | Instant | колонка `locked_until`, опционален — до этого момента вход запрещён (блокировка после N неудач); null/прошлое — не заблокирован |
 
 ### Role (enum)
 `ADMIN`, `OPERATOR`. При самостоятельной регистрации (`register`) всегда назначается `OPERATOR`.
@@ -212,6 +218,7 @@ snapshot_date)` покрывает выборку динамики по клие
   перечисление usernames закрыта самим провайдером: при `UsernameNotFoundException` он выполняет
   холостую bcrypt-сверку (`mitigateAgainstTimingAttack`), время ответа не выдаёт существование
   username. Сущность для выдачи токенов достаётся из principal (`CustomUserDetails.user()`).
+  Любая неудача фиксируется счётчиком антибрутфорса (см. ниже), успех — сбрасывает его.
 - `refresh` — ротация одним методом `RefreshTokenService.rotate(rawToken)` в одной транзакции:
   чтение по хешу под `@Lock(PESSIMISTIC_WRITE)` (SELECT … FOR UPDATE — конкурентные `/refresh`
   с одним токеном сериализуются: двух новых пар токенов не выдаётся, второй запрос детерминированно
@@ -232,6 +239,31 @@ snapshot_date)` покрывает выборку динамики по клие
   срока (≤ 15 мин): схема stateless, серверного блок-листа токенов нет — это осознанный компромисс
   (блок-лист потребовал бы jti/subject по п. 13 §10 и общего состояния).
 
+Антибрутфорс (п. 12 §10, закрыт 2026-10-28) — два независимых механизма:
+
+1. **Rate limiting `POST /api/v1/auth/login|register`.** `AuthRateLimiter` (`security/`) вызывается
+   из `AuthController` до сервиса: token bucket (Bucket4j) на пару username+IP (IP — первый адрес
+   `X-Forwarded-For`, при отсутствии заголовка `remoteAddr`). Переполнение →
+   `TooManyRequestsException` → **429** с телом `ErrorResponse`. Бакеты in-memory — Caffeine-кэш
+   (`maximumSize` 100 000, `expireAfterAccess` 1 ч; вытеснение простаивающих ключей предохраняет
+   карту от роста под скриптовым перебором username). Состояние локально для инстанса: при
+   масштабировании на несколько инстансов каждый считает лимит независимо — общий store
+   (например, Redis) при необходимости позже. Ограничение по паре username+IP не сдерживает
+   массовую регистрацию/перебор с ротацией username с одного IP — при необходимости добавляется
+   отдельный IP-only бакет.
+2. **Блокировка аккаунта.** `users.failed_attempts` / `users.locked_until` (миграция
+   `V6__user_account_lockout.sql`). Любая неудачная попытка входа (в том числе повторной попыткой
+   заблокированного аккаунта — блокировка продлевается) инкрементит счётчик; при достижении
+   порога (`app.security.account-lockout.max-failed-attempts`, 5) ставится
+   `locked_until = now + lock-duration` (15 мин). Успешный вход сбрасывает счётчик и блокировку.
+   Учёт при загрузке: `CustomUserDetails.isAccountNonLocked()` — `DaoAuthenticationProvider`
+   отклоняет заблокированный аккаунт до сверки пароля (`LockedException`), ответ — тот же единый
+   401 "Invalid credentials", причина не раскрывается. Инкремент выполняет
+   `AccountLockoutService.registerFailedLogin` в отдельной транзакции (`REQUIRES_NEW`):
+   внешний `login` помечен `@Transactional` и откатывается по 401 — без отдельной транзакции
+   откат стирал бы инкремент (тот же принцип, что у refresh-ротации: мутация-последствие живёт
+   вне откатывающейся транзакции, см. `refresh` выше).
+
 Очистка: просроченные токены (в том числе уже ротированные) удаляет `RefreshTokenCleanupJob`
 (`scheduling/`, `@EnableScheduling` на `KcrBackendApplication`) — `@Scheduled`-cron
 `app.cleanup.refresh-token-cron` (по умолчанию `0 0 4 * * *`, локальная зона сервера) вызывает
@@ -250,6 +282,8 @@ RuntimeException
         │   ├── InvalidCredentialsException       → 401 UNAUTHORIZED
         │   ├── UserNotFoundException             → 404 NOT_FOUND
         │   └── ClientNotFoundException           → 404 NOT_FOUND
+        ├── TooManyRequestsException      → 429 TOO_MANY_REQUESTS (переполнение бакета
+        │                                  антибрутфорса, §5)
         └── ServerException              (base/, 500 INTERNAL_SERVER_ERROR)
 ```
 
@@ -285,9 +319,11 @@ RuntimeException
 | `DB_USERNAME` | prod; в dev опциональна (по умолчанию `myuser`) | пользователь БД |
 
 Прочие прикладные свойства: `app.cors.allowed-origins` (список через запятую; dev —
-`http://localhost:5173`, переопределяется окружением `APP_CORS_ALLOWED_ORIGINS`, см. §5) и
+`http://localhost:5173`, переопределяется окружением `APP_CORS_ALLOWED_ORIGINS`, см. §5),
 `app.cleanup.refresh-token-cron` (cron суточной очистки refresh-токенов, общая часть
-`application.yaml`, по умолчанию `0 0 4 * * *`, см. §5).
+`application.yaml`, по умолчанию `0 0 4 * * *`, см. §5) и параметры антибрутфорса (§5):
+`app.security.auth-rate-limit.capacity` (10) с `refill-duration` (1m) и
+`app.security.account-lockout.max-failed-attempts` (5) с `lock-duration` (15m).
 
 Для локальной разработки секреты кладутся в `server/kcr-backend/.env` (копия шаблона
 `.env.example`; сам `.env` в `.gitignore`). Профиль `dev` подключает его через
@@ -450,6 +486,22 @@ RuntimeException
   блок-листа нет, см. §5). Тесты: `AuthServiceTest`/`RefreshTokenServiceTest` (делегирование),
   e2e-сценарий в `AuthFlowIntegrationTest` (401 без токена, 204 с токеном, оба refresh-токена
   двух сессий мертвы, повторный login работает); `./gradlew build` проходит (56 тестов).
+- п. 12 §10 закрыт (2026-10-28, ветка `feature/auth`): антибрутфорс — rate limiting
+  `POST /api/v1/auth/login|register` (`AuthRateLimiter` в `security/`, Bucket4j
+  `bucket4j_jdk17-core` 8.21.0 + Caffeine-кэш бакетов; token bucket на пару username+IP, IP —
+  первый адрес `X-Forwarded-For` либо `remoteAddr`; переполнение → новый
+  `TooManyRequestsException` → 429 в едином контракте `ErrorResponse`) и блокировка аккаунта
+  после N неудачных попыток (миграция `V6__user_account_lockout.sql`: `users.failed_attempts`
+  int NOT NULL DEFAULT 0, `users.locked_until` timestamptz; поля в `User`, порог/длительность —
+  `app.security.account-lockout.*`; учёт при загрузке — `CustomUserDetails.isAccountNonLocked()`
+  → провайдер отклоняет до сверки пароля, ответ — единый 401; инкремент —
+  `AccountLockoutService.registerFailedLogin` в `REQUIRES_NEW`-транзакции, иначе откат
+  `@Transactional`-login по 401 стирал бы счётчик; успех сбрасывает счётчик). Параметры —
+  `app.security.auth-rate-limit.*` и `app.security.account-lockout.*`, см. §5/§7. Тесты:
+  `AuthRateLimiterTest` (2), `AccountLockoutServiceTest` (5), `AuthServiceTest` (делегирование,
+  11), e2e в `AuthFlowIntegrationTest`: блокировка до истечения + восстановление (установка
+  `locked_until` в прошлое) и 429 при исчерпании бакета (2); `./gradlew build` проходит
+  (66 тестов).
 
 Выявленные проблемы и требуемые изменения собраны в §10 (архитектурное ревью от 2026-10-24);
 ранее перечислявшиеся здесь «известные особенности» включены туда.
@@ -465,9 +517,6 @@ RuntimeException
 
 ### P1 — до первого продакшена
 
-12. **Антибрутфорс.** Rate limiting на `/api/v1/auth/login|register` (Bucket4j, лимит на пару
-    username+IP) + блокировка аккаунта после N неудачных попыток (`failed_attempts`/`locked_until`
-    на `User`, учитывать при загрузке в `CustomUserDetailsService`).
 13. **Claims access-токена.** Subject — `user.getId()` вместо username (username изменяем), плюс
     `preferred_username` и `jti` (`JwtService.generateAccessToken`).
 14. **Упростить иерархию исключений и `ErrorResponse`.** `BasicException` — пустой уровень без

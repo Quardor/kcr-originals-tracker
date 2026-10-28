@@ -3,6 +3,8 @@ package ru.quard0r.kcrbackend.model;
 import jakarta.persistence.*;
 import lombok.*;
 
+import java.time.Instant;
+
 @Entity
 @Table(name = "users")
 @Getter @Setter @AllArgsConstructor @NoArgsConstructor @Builder
@@ -24,4 +26,10 @@ public class User {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private Role role;
+
+    @Column(name = "failed_attempts", nullable = false)
+    private int failedAttempts;
+
+    @Column(name = "locked_until")
+    private Instant lockedUntil;
 }

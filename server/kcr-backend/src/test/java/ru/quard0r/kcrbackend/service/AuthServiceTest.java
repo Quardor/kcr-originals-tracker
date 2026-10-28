@@ -8,6 +8,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.LockedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -55,6 +56,9 @@ class AuthServiceTest {
 
     @Mock
     private JwtService jwtService;
+
+    @Mock
+    private AccountLockoutService accountLockoutService;
 
     @InjectMocks
     private AuthService authService;
@@ -150,6 +154,7 @@ class AuthServiceTest {
 
         assertEquals("access-token", response.accessToken());
         assertEquals("refresh-token", response.refreshToken());
+        verify(accountLockoutService).resetFailedLogins(user);
     }
 
     @Test
@@ -159,6 +164,7 @@ class AuthServiceTest {
 
         assertThrows(InvalidCredentialsException.class,
                 () -> authService.login(new LoginRequest("ghost", RAW_PASSWORD)));
+        verify(accountLockoutService).registerFailedLogin("ghost");
         verifyNoInteractions(jwtService, refreshTokenService);
     }
 
@@ -169,6 +175,21 @@ class AuthServiceTest {
 
         assertThrows(InvalidCredentialsException.class,
                 () -> authService.login(new LoginRequest("user", RAW_PASSWORD)));
+        verify(accountLockoutService).registerFailedLogin("user");
+        verifyNoInteractions(jwtService, refreshTokenService);
+    }
+
+    @Test
+    void loginFailureOnLockedAccountStillCountsAsFailedAttempt() {
+        // Locked-аккаунт отклоняется провайдером тем же путём: единый 401 без раскрытия
+        // причины, попытка передаётся в счётчик (продление блокировки).
+        when(authenticationManager.authenticate(any(Authentication.class)))
+                .thenThrow(new LockedException("Account is locked"));
+
+        assertThrows(InvalidCredentialsException.class,
+                () -> authService.login(new LoginRequest("user", RAW_PASSWORD)));
+
+        verify(accountLockoutService).registerFailedLogin("user");
         verifyNoInteractions(jwtService, refreshTokenService);
     }
 

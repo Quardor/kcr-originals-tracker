@@ -34,6 +34,7 @@ public class AuthService {
 
     private final RefreshTokenService refreshTokenService;
     private final JwtService jwtService;
+    private final AccountLockoutService accountLockoutService;
 
     @Transactional
     public AuthResponse register(RegisterRequest request) {
@@ -62,9 +63,11 @@ public class AuthService {
             authentication = authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(request.username(), request.password()));
         } catch (AuthenticationException e) {
+            accountLockoutService.registerFailedLogin(request.username());
             throw new InvalidCredentialsException(INVALID_CREDENTIALS_MESSAGE);
         }
         User user = ((CustomUserDetails) authentication.getPrincipal()).user();
+        accountLockoutService.resetFailedLogins(user);
         return issueTokens(user);
     }
 

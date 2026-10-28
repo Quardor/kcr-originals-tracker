@@ -5,6 +5,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 import ru.quard0r.kcrbackend.model.User;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 
@@ -23,5 +24,10 @@ public record CustomUserDetails(User user) implements UserDetails {
     @Override
     public String getUsername() {
         return user.getUsername();
+    }
+
+    @Override
+    public boolean isAccountNonLocked() {
+        return user.getLockedUntil() == null || !user.getLockedUntil().isAfter(Instant.now());
     }
 }
