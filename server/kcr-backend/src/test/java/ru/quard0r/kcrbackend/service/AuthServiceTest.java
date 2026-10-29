@@ -16,8 +16,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import ru.quard0r.kcrbackend.dto.request.LoginRequest;
 import ru.quard0r.kcrbackend.dto.request.RegisterRequest;
 import ru.quard0r.kcrbackend.dto.response.AuthResponse;
-import ru.quard0r.kcrbackend.exception.CredentialsAlreadyExistsException;
-import ru.quard0r.kcrbackend.exception.InvalidCredentialsException;
+import ru.quard0r.kcrbackend.exception.DomainException;
+import ru.quard0r.kcrbackend.exception.ErrorCode;
 import ru.quard0r.kcrbackend.model.Role;
 import ru.quard0r.kcrbackend.model.User;
 import ru.quard0r.kcrbackend.repository.UserRepository;
@@ -100,8 +100,9 @@ class AuthServiceTest {
     void registerRejectsTakenUsername() {
         when(userRepository.existsByUsername("taken")).thenReturn(true);
 
-        assertThrows(CredentialsAlreadyExistsException.class,
+        DomainException exception = assertThrows(DomainException.class,
                 () -> authService.register(new RegisterRequest("taken", RAW_PASSWORD, null)));
+        assertEquals(ErrorCode.USERNAME_ALREADY_TAKEN, exception.getErrorCode());
         verify(userRepository, never()).save(any());
     }
 
@@ -119,8 +120,9 @@ class AuthServiceTest {
         when(userRepository.existsByUsername("newuser")).thenReturn(false);
         when(userRepository.existsByEmail("taken@mail.com")).thenReturn(true);
 
-        assertThrows(CredentialsAlreadyExistsException.class,
+        DomainException exception = assertThrows(DomainException.class,
                 () -> authService.register(new RegisterRequest("newuser", RAW_PASSWORD, "taken@mail.com")));
+        assertEquals(ErrorCode.EMAIL_ALREADY_TAKEN, exception.getErrorCode());
         verify(userRepository, never()).save(any());
     }
 
@@ -162,8 +164,9 @@ class AuthServiceTest {
         when(authenticationManager.authenticate(any(Authentication.class)))
                 .thenThrow(new UsernameNotFoundException("User not found: ghost"));
 
-        assertThrows(InvalidCredentialsException.class,
+        DomainException exception = assertThrows(DomainException.class,
                 () -> authService.login(new LoginRequest("ghost", RAW_PASSWORD)));
+        assertEquals(ErrorCode.INVALID_CREDENTIALS, exception.getErrorCode());
         verify(accountLockoutService).registerFailedLogin("ghost");
         verifyNoInteractions(jwtService, refreshTokenService);
     }
@@ -173,7 +176,7 @@ class AuthServiceTest {
         when(authenticationManager.authenticate(any(Authentication.class)))
                 .thenThrow(new BadCredentialsException("Bad credentials"));
 
-        assertThrows(InvalidCredentialsException.class,
+        assertThrows(DomainException.class,
                 () -> authService.login(new LoginRequest("user", RAW_PASSWORD)));
         verify(accountLockoutService).registerFailedLogin("user");
         verifyNoInteractions(jwtService, refreshTokenService);
@@ -186,7 +189,7 @@ class AuthServiceTest {
         when(authenticationManager.authenticate(any(Authentication.class)))
                 .thenThrow(new LockedException("Account is locked"));
 
-        assertThrows(InvalidCredentialsException.class,
+        assertThrows(DomainException.class,
                 () -> authService.login(new LoginRequest("user", RAW_PASSWORD)));
 
         verify(accountLockoutService).registerFailedLogin("user");
@@ -210,7 +213,9 @@ class AuthServiceTest {
     void refreshRejectsUnknownOrRevokedRefreshToken() {
         when(refreshTokenService.rotate("bad-refresh")).thenReturn(Optional.empty());
 
-        assertThrows(InvalidCredentialsException.class, () -> authService.refresh("bad-refresh"));
+        DomainException exception = assertThrows(DomainException.class,
+                () -> authService.refresh("bad-refresh"));
+        assertEquals(ErrorCode.INVALID_REFRESH_TOKEN, exception.getErrorCode());
         verifyNoInteractions(userRepository);
     }
 }

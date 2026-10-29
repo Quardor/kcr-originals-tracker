@@ -5,7 +5,8 @@ import org.hibernate.Hibernate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import ru.quard0r.kcrbackend.exception.base.ServerException;
+import ru.quard0r.kcrbackend.exception.DomainException;
+import ru.quard0r.kcrbackend.exception.ErrorCode;
 import ru.quard0r.kcrbackend.model.RefreshToken;
 import ru.quard0r.kcrbackend.model.User;
 import ru.quard0r.kcrbackend.repository.RefreshTokenRepository;
@@ -85,7 +86,7 @@ public class RefreshTokenService {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             return HexFormat.of().formatHex(digest.digest(raw.getBytes(StandardCharsets.UTF_8)));
         } catch (NoSuchAlgorithmException e) {
-            throw new ServerException("SHA-256 digest is not available in the JRE");
+            throw new DomainException(ErrorCode.SHA256_UNAVAILABLE);
         }
     }
 }

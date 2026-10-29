@@ -5,7 +5,8 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import io.github.bucket4j.Bucket;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-import ru.quard0r.kcrbackend.exception.TooManyRequestsException;
+import ru.quard0r.kcrbackend.exception.DomainException;
+import ru.quard0r.kcrbackend.exception.ErrorCode;
 
 import java.time.Duration;
 
@@ -31,7 +32,7 @@ public class AuthRateLimiter {
     public void check(String username, String ip) {
         Bucket bucket = buckets.get(username + "|" + ip, key -> newBucket());
         if (!bucket.tryConsume(1)) {
-            throw new TooManyRequestsException("Too many authentication attempts, please try again later");
+            throw new DomainException(ErrorCode.TOO_MANY_AUTH_ATTEMPTS);
         }
     }
 

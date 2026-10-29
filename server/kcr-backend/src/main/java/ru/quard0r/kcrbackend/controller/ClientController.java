@@ -20,7 +20,8 @@ import ru.quard0r.kcrbackend.dto.request.ClientUpdateRequest;
 import ru.quard0r.kcrbackend.dto.response.ClientResponse;
 import ru.quard0r.kcrbackend.dto.response.PageResponse;
 import ru.quard0r.kcrbackend.dto.response.SnapshotResponse;
-import ru.quard0r.kcrbackend.exception.base.BadRequestException;
+import ru.quard0r.kcrbackend.exception.DomainException;
+import ru.quard0r.kcrbackend.exception.ErrorCode;
 import ru.quard0r.kcrbackend.model.ClientType;
 import ru.quard0r.kcrbackend.service.ClientService;
 
@@ -49,7 +50,7 @@ public class ClientController {
             @RequestParam(defaultValue = "asc") String sortDir)
     {
         if (!SORT_FIELDS.contains(sortBy)) {
-            throw new BadRequestException("Invalid sort field");
+            throw new DomainException(ErrorCode.INVALID_SORT_FIELD);
         }
         Sort.Direction direction = parseDirection(sortDir);
         PageRequest pageRequest = PageRequest.of(page, size, Sort.by(direction, sortBy));
@@ -91,7 +92,7 @@ public class ClientController {
         return switch (sortDir.toLowerCase(Locale.ROOT)) {
             case "asc" -> Sort.Direction.ASC;
             case "desc" -> Sort.Direction.DESC;
-            default -> throw new BadRequestException("Invalid sort direction");
+            default -> throw new DomainException(ErrorCode.INVALID_SORT_DIRECTION);
         };
     }
 }

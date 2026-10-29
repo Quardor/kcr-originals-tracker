@@ -17,6 +17,7 @@ import java.util.regex.Pattern;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.matchesPattern;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -48,7 +49,10 @@ class ClientApiIntegrationTest {
 
         mockMvc.perform(get("/api/v1/clients"))
                 .andExpect(status().isUnauthorized())
-                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON));
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(content().string(containsString("\"code\":\"AUTHENTICATION_REQUIRED\"")))
+                .andExpect(content().string(matchesPattern(
+                        ".*\"timestamp\":\"\\d{4}-\\d{2}-\\d{2}T[^\"]+\".*")));
 
         mockMvc.perform(get("/api/v1/clients").param("search", suffix)
                         .header("Authorization", "Bearer " + operatorToken))

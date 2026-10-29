@@ -17,9 +17,8 @@ import ru.quard0r.kcrbackend.dto.request.ClientUpdateRequest;
 import ru.quard0r.kcrbackend.dto.response.ClientResponse;
 import ru.quard0r.kcrbackend.dto.response.PageResponse;
 import ru.quard0r.kcrbackend.dto.response.SnapshotResponse;
-import ru.quard0r.kcrbackend.exception.ClientAlreadyExistsException;
-import ru.quard0r.kcrbackend.exception.ClientNotFoundException;
-import ru.quard0r.kcrbackend.exception.base.BadRequestException;
+import ru.quard0r.kcrbackend.exception.DomainException;
+import ru.quard0r.kcrbackend.exception.ErrorCode;
 import ru.quard0r.kcrbackend.model.Client;
 import ru.quard0r.kcrbackend.model.DocumentTransferSnapshot;
 import ru.quard0r.kcrbackend.repository.ClientRepository;
@@ -74,7 +73,9 @@ class ClientServiceTest {
     void getClientThrowsForUnknownClient() {
         when(clientRepository.findById(42L)).thenReturn(Optional.empty());
 
-        assertThrows(ClientNotFoundException.class, () -> clientService.getClient(42L));
+        DomainException exception = assertThrows(DomainException.class,
+                () -> clientService.getClient(42L));
+        assertEquals(ErrorCode.CLIENT_NOT_FOUND, exception.getErrorCode());
     }
 
     @Test
@@ -145,7 +146,7 @@ class ClientServiceTest {
     void getSnapshotsThrowsForUnknownClient() {
         when(clientRepository.existsById(42L)).thenReturn(false);
 
-        assertThrows(ClientNotFoundException.class, () -> clientService.getSnapshots(42L, null));
+        assertThrows(DomainException.class, () -> clientService.getSnapshots(42L, null));
     }
 
     @Test
@@ -171,9 +172,11 @@ class ClientServiceTest {
     void createRejectsDuplicateKcrCode() {
         when(clientRepository.existsByKcrCode("kcr_001")).thenReturn(true);
 
-        assertThrows(ClientAlreadyExistsException.class, () -> clientService.create(new ClientCreateRequest(
-                "kcr_001", "123456789012", null, "Organization",
-                null, null, null, null, null, null, null, null, null, null, null)));
+        DomainException exception = assertThrows(DomainException.class, () -> clientService.create(
+                new ClientCreateRequest(
+                        "kcr_001", "123456789012", null, "Organization",
+                        null, null, null, null, null, null, null, null, null, null, null)));
+        assertEquals(ErrorCode.CLIENT_ALREADY_EXISTS, exception.getErrorCode());
         verify(clientRepository, never()).save(any());
     }
 
@@ -198,9 +201,11 @@ class ClientServiceTest {
     void updateRejectsBlankOrganizationName() {
         when(clientRepository.findById(1L)).thenReturn(Optional.of(client()));
 
-        assertThrows(BadRequestException.class, () -> clientService.update(1L, new ClientUpdateRequest(
-                null, null, "   ", null, null, null, null, null,
-                null, null, null, null, null, null)));
+        DomainException exception = assertThrows(DomainException.class, () -> clientService.update(1L,
+                new ClientUpdateRequest(
+                        null, null, "   ", null, null, null, null, null,
+                        null, null, null, null, null, null)));
+        assertEquals(ErrorCode.BLANK_ORGANIZATION_NAME, exception.getErrorCode());
         verify(clientRepository, never()).save(any());
     }
 
@@ -208,7 +213,7 @@ class ClientServiceTest {
     void updateThrowsForUnknownClient() {
         when(clientRepository.findById(42L)).thenReturn(Optional.empty());
 
-        assertThrows(ClientNotFoundException.class, () -> clientService.update(42L, new ClientUpdateRequest(
+        assertThrows(DomainException.class, () -> clientService.update(42L, new ClientUpdateRequest(
                 null, null, "New Name", null, null, null, null, null,
                 null, null, null, null, null, null)));
     }

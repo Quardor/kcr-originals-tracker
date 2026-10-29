@@ -10,6 +10,7 @@ import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.stereotype.Component;
 import ru.quard0r.kcrbackend.dto.response.ErrorResponse;
+import ru.quard0r.kcrbackend.exception.ErrorCode;
 
 import java.io.IOException;
 
@@ -24,6 +25,6 @@ public class RestAuthenticationEntryPoint implements AuthenticationEntryPoint {
                          AuthenticationException authException) throws IOException {
         response.setStatus(HttpStatus.UNAUTHORIZED.value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        objectMapper.writeValue(response.getWriter(), new ErrorResponse("Authentication required"));
+        objectMapper.writeValue(response.getWriter(), new ErrorResponse(ErrorCode.AUTHENTICATION_REQUIRED));
     }
 }

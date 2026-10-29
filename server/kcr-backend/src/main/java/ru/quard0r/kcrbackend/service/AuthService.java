@@ -11,8 +11,8 @@ import org.springframework.transaction.annotation.Transactional;
 import ru.quard0r.kcrbackend.dto.request.LoginRequest;
 import ru.quard0r.kcrbackend.dto.request.RegisterRequest;
 import ru.quard0r.kcrbackend.dto.response.AuthResponse;
-import ru.quard0r.kcrbackend.exception.CredentialsAlreadyExistsException;
-import ru.quard0r.kcrbackend.exception.InvalidCredentialsException;
+import ru.quard0r.kcrbackend.exception.DomainException;
+import ru.quard0r.kcrbackend.exception.ErrorCode;
 import ru.quard0r.kcrbackend.model.Role;
 import ru.quard0r.kcrbackend.model.User;
 import ru.quard0r.kcrbackend.repository.UserRepository;
@@ -22,9 +22,6 @@ import ru.quard0r.kcrbackend.security.JwtService;
 @Service
 @RequiredArgsConstructor
 public class AuthService {
-
-    private static final String INVALID_CREDENTIALS_MESSAGE = "Invalid credentials";
-    private static final String INVALID_REFRESH_TOKEN_MESSAGE = "Invalid refresh token";
 
     private final UserRepository userRepository;
 
@@ -41,10 +38,10 @@ public class AuthService {
         String email = normalizeEmail(request.email());
 
         if (userRepository.existsByUsername(request.username())) {
-            throw new CredentialsAlreadyExistsException("Username already taken");
+            throw new DomainException(ErrorCode.USERNAME_ALREADY_TAKEN);
         }
         if (email != null && userRepository.existsByEmail(email)) {
-            throw new CredentialsAlreadyExistsException("Email already taken");
+            throw new DomainException(ErrorCode.EMAIL_ALREADY_TAKEN);
         }
 
         User user = userRepository.save(User.builder()
@@ -64,7 +61,7 @@ public class AuthService {
                     new UsernamePasswordAuthenticationToken(request.username(), request.password()));
         } catch (AuthenticationException e) {
             accountLockoutService.registerFailedLogin(request.username());
-            throw new InvalidCredentialsException(INVALID_CREDENTIALS_MESSAGE);
+            throw new DomainException(ErrorCode.INVALID_CREDENTIALS);
         }
         User user = ((CustomUserDetails) authentication.getPrincipal()).user();
         accountLockoutService.resetFailedLogins(user);
@@ -73,7 +70,7 @@ public class AuthService {
 
     public AuthResponse refresh(String refreshToken) {
         RefreshTokenService.RotationResult rotation = refreshTokenService.rotate(refreshToken)
-                .orElseThrow(() -> new InvalidCredentialsException(INVALID_REFRESH_TOKEN_MESSAGE));
+                .orElseThrow(() -> new DomainException(ErrorCode.INVALID_REFRESH_TOKEN));
 
         return AuthResponse.builder()
                 .accessToken(jwtService.generateAccessToken(rotation.user()))
