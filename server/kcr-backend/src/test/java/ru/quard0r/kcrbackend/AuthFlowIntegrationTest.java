@@ -21,10 +21,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
@@ -275,6 +277,28 @@ class AuthFlowIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"" + username + "\",\"password\":\"wrong-password\"}"))
                 .andExpect(status().isTooManyRequests());
+    }
+
+    @Test
+    void accessTokenOfDeletedUserIsRejectedWith401() throws Exception {
+        // Подпись верна, но пользователя больше нет: конвертер бросает AuthenticationException,
+        // 401 в едином контракте — а не 500 из-за исключения внутри фильтрации.
+        String username = "ituser-" + UUID.randomUUID();
+        MvcResult register = mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"" + username + "\",\"password\":\"password123\"}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+        String accessToken = extractField(register.getResponse().getContentAsString(), "accessToken");
+
+        jdbcTemplate.update(
+                "DELETE FROM refresh_tokens WHERE user_id = (SELECT id FROM users WHERE username = ?)",
+                username);
+        jdbcTemplate.update("DELETE FROM users WHERE username = ?", username);
+
+        mockMvc.perform(get("/api/persons").header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().string(containsString("\"code\":\"AUTHENTICATION_REQUIRED\"")));
     }
 
     private record RefreshResponse(int status, String body) {

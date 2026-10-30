@@ -31,8 +31,8 @@
 | ORM | Spring Data JPA (Hibernate) | из BOM Boot |
 | БД | PostgreSQL | локальный инстанс |
 | Миграции | Flyway (`spring-boot-flyway` + `flyway-database-postgresql`) | из BOM Boot |
-| Безопасность | Spring Security (stateless, JWT) | из BOM Boot |
-| JWT | jjwt (api/impl/jackson) | 0.12.6 |
+| Безопасность | Spring Security (stateless, JWT: проверка access-токенов — resource server, `spring-boot-starter-oauth2-resource-server`) | из BOM Boot |
+| JWT | jjwt (api/impl/jackson) — только выдача access-токенов | 0.12.6 |
 | Rate limiting | Bucket4j (`bucket4j_jdk17-core`) + Caffeine (кэш бакетов, версия из BOM Boot) | 8.21.0 |
 | Бойлерплейт | Lombok | из BOM Boot |
 | Excel-импорт | Apache POI (`poi-ooxml`) | 5.5.1 |
@@ -68,7 +68,9 @@ ru.quard0r.kcrbackend
 │                             ClientRepository, DocumentTransferSnapshotRepository)
 ├── scheduling/             — фоновые задачи (RefreshTokenCleanupJob — ежедневная очистка
 │                             просроченных refresh-токенов, см. §5)
-├── security/               — JWT-инфраструктура (JwtService, JwtAuthenticationFilter,
+├── security/               — JWT-инфраструктура (JwtService — выдача access-токенов,
+│                             JwtAuthenticationConverter — валидированный токен →
+│                             аутентификация (Caffeine-кэш principal'ов),
 │                             CustomUserDetailsService, RestAuthenticationEntryPoint)
 │                             + AuthRateLimiter — антибрутфорс-лимитер login/register (см. §5)
 └── service/                — бизнес-логика (AuthService, RefreshTokenService,
@@ -185,23 +187,31 @@ snapshot_date)` покрывает выборку динамики по клие
 Схема stateless, без сессий (`SessionCreationPolicy.STATELESS`), CSRF отключён.
 
 - Пароли хранятся как BCrypt-хеш (`BCryptPasswordEncoder`).
-- Access-токен: подпись HMAC-SHA (ключ из `jwt.secret`), subject = `user.getId()`
+- Access-токен: подпись HS256 (HMAC-SHA256, ключ из `jwt.secret`; алгоритм закреплён явно
+  и в выдаче, и в декодере — совпадение обязательно), subject = `user.getId()`
   (username изменяем — идентификация в токене не должна ломаться при переименовании),
   claims: `preferred_username` (бывший subject, для отображения/фронта), `email`, `roles`,
   `jti` (UUID, уникален у каждого токена — задел под серверный блок-лист); срок —
   `jwt.access-expiration` (15 мин). Токены, выданные до смены subject (раньше username),
-  после выката невалидны: нечисловой subject → NumberFormatException в фильтре → 401;
+  после выката невалидны: нечисловой subject → `InvalidBearerTokenException` в конвертере → 401;
   клиент обновляет пару через `/refresh` (refresh-токены от схемы access-токена не зависят).
 - Refresh-токен: сырой UUID отдаётся клиенту, в БД хранится только его SHA-256-хеш,
   поиск — по хешу; срок — `jwt.refresh-expiration` (7 дней).
-- `JwtAuthenticationFilter` (before `UsernamePasswordAuthenticationFilter`) читает заголовок
-  `Authorization: Bearer <token>`, валидирует и заполняет `SecurityContext`; пользователь
-  загружается по id из subject (`CustomUserDetailsService.loadUserById`), `isTokenValid`
-  сверяет id и срок. Авто-регистрация фильтра
-  в servlet-контейнере отключена через `FilterRegistrationBean` (иначе он вызывается вне security-цепочки
-  и его SecurityContext затирается).
+- Проверка access-токена — resource server Spring Security (п. 23 §10, заменён рукописный
+  `JwtAuthenticationFilter`): `BearerTokenAuthenticationFilter` → `NimbusJwtDecoder`
+  (бин в `SecurityConfig`: валидация HMAC-подписи и срока, один парсинг на запрос) →
+  `JwtAuthenticationConverter` (`security/`): subject → id, пользователь загружается
+  `CustomUserDetailsService.loadUserById` через Caffeine-кэш (TTL 30 с, максимум 10 000 —
+  БД выведена из горячего пути, п. 20 §10; удаление пользователя и смена роли подхватываются
+  в пределах TTL), итог — `UserAuthenticationToken` с principal `CustomUserDetails`
+  (контроллеры и сервисы не зависят от типа токена ресурсного сервера). jjwt остаётся только
+  на выдачу (`JwtService`). Любая неудача — испорченный/истёкший токен, нечисловой subject,
+  неизвестный пользователь — `AuthenticationException` → 401 (не 500).
 - `RestAuthenticationEntryPoint` отдаёт единый контракт ошибок неаутентифицированным запросам:
-  **401** с телом `ErrorResponse` (JSON) вместо дефолтного 403.
+  **401** с телом `ErrorResponse` (JSON) вместо дефолтного 403. Подключён и в
+  `exceptionHandling`, и в `oauth2ResourceServer`: ошибки самого bearer-фильтра идут через
+  его failure handler, а не через exceptionHandling. Причина 401 (нет токена, плохая подпись,
+  истёк, неизвестный пользователь) — в debug-лог, ответ клиенту одинаков и причину не раскрывает.
 - CORS: бин `CorsConfigurationSource` + `.cors(...)` в цепочке; источники — свойство
   `app.cors.allowed-origins` (список через запятую; в dev — `http://localhost:5173`, переопределяется
   переменной окружения `APP_CORS_ALLOWED_ORIGINS`). Разрешены методы GET/POST/PUT/PATCH/DELETE/OPTIONS
@@ -211,7 +221,7 @@ snapshot_date)` покрывает выборку динамики по клие
   в `SecurityConfig` стоит раньше permitAll); всё остальное — только аутентифицированным.
 - Включена method security (`@EnableMethodSecurity`) — можно использовать `@PreAuthorize` по ролям.
 - `CustomUserDetailsService` возвращает `CustomUserDetails` — record-обёртку над сущностью `User`
-  (роль → authority `ROLE_<ROLE>`); она же — principal в `SecurityContext` после фильтра и в
+  (роль → authority `ROLE_<ROLE>`); она же — principal в `SecurityContext` после конвертера и в
   результате `authenticate(...)`.
 
 Сценарии (реализованы в `AuthService`; `register`/`login`/`logout` — `@Transactional`, `refresh` — нет,
@@ -560,6 +570,25 @@ HTTP-статус и сообщение по умолчанию, имя конс
   `ClientServiceTest`, `AuthRateLimiterTest` (ассерты на `ErrorCode`), e2e-контракт 401 в
   `ClientApiIntegrationTest` (`"code":"AUTHENTICATION_REQUIRED"`, `timestamp` — ISO-строка);
   `./gradlew build` проходит (74 теста).
+- п. 23 §10 закрыт (2026-10-30, ветка `feature/auth`): проверка access-токенов переведена
+  на resource server Spring Security (`spring-boot-starter-oauth2-resource-server`), рукописный
+  `JwtAuthenticationFilter` удалён. `NimbusJwtDecoder` (бин `SecurityConfig`, тот же ключ)
+  валидирует подпись и срок — один парсинг на запрос; алгоритм HS256 закреплён явно и в выдаче
+  (`JwtService.signWith(key, Jwts.SIG.HS256)`), и в декодере (раньше jjwt выбирал HSxxx по
+  длине ключа молча — теперь совпадение сторон гарантировано кодом). `JwtAuthenticationConverter`
+  (`security/`): subject → id → пользователь из `loadUserById` через Caffeine-кэш (TTL 30 с,
+  максимум 10 000) → `UserAuthenticationToken` с principal `CustomUserDetails` — контроллеры
+  и сервисы не изменились; БД выведена из горячего пути. Этим же закрыты п. 20 (загрузка
+  пользователя на каждый запрос; debug-лог причины 401 — в `RestAuthenticationEntryPoint`) и
+  подпункты 32(а)/(в) (токен удалённого пользователя → `InvalidBearerTokenException` → 401
+  вместо 500; парсинг токена один раз вместо 2–3) — из п. 32 остался только catch-all для
+  непредвиденных исключений. Entry point подключён и в `oauth2ResourceServer`: без этого
+  ошибки bearer-фильтра уходили в дефолтный sendError с пустым телом мимо единого контракта.
+  Мёртвые после замены методы `JwtService` (`extractUserId`/`isTokenValid`) удалены. Тесты:
+  `JwtAuthenticationConverterTest` (4: конвертация с ролями, legacy-subject, неизвестный
+  пользователь, кэш), `JwtServiceTest` переписан под выдачу-only (2), e2e «токен удалённого
+  пользователя → 401 с телом контракта» в `AuthFlowIntegrationTest`; `./gradlew build`
+  проходит (76 тестов).
 
 Выявленные проблемы и требуемые изменения собраны в §10 (архитектурные ревью 2026-10-24
 и 2026-10-29); ранее перечислявшиеся здесь «известные особенности» включены туда.
@@ -619,17 +648,10 @@ HTTP-статус и сообщение по умолчанию, имя конс
     строки и без загрузки сущности; сброс — симметричный `update … set failedAttempts = 0,
     lockedUntil = null where id = :id and (failedAttempts <> 0 or lockedUntil is not null)`.
     `REQUIRES_NEW` сохраняется.
-32. **Единый контракт ошибок за пределами MVC-диспетчера.** (а) Токен с верной подписью
-    удалённого пользователя: `loadUserById` бросает исключение внутри `JwtAuthenticationFilter`,
-    `@RestControllerAdvice` туда не доходит — сейчас 500 вместо 401; загрузку пользователя
-    оборачивать, при неудаче оставлять SecurityContext пустым → 401 от
-    `RestAuthenticationEntryPoint`. (б) Неперехваченное исключение контроллера уходит в
-    дефолтный `/error` мимо `ErrorResponse` — добавить catch-all
+32. **Catch-all обработчик непредвиденных исключений.** Неперехваченное исключение контроллера
+    уходит в дефолтный `/error` мимо `ErrorResponse` — добавить catch-all
     `@ExceptionHandler(Exception.class)` → 500 с нейтральным сообщением (стек — в лог, не в
-    ответ). (в) Токен парсится 2–3 раза за запрос (`extractUserId` в фильтре, затем ещё дважды
-    внутри `isTokenValid`), каждый парс — полная проверка HMAC-подписи: парсить один раз и
-    валидировать subject/срок из полученных `Claims`; это же преддверие п. 20 (доверие claims
-    в hot path).
+    ответ).
 
 ### P2 — качество и готовность к нагрузке
 
@@ -638,14 +660,10 @@ HTTP-статус и сообщение по умолчанию, имя конс
     `AuthFlowIntegrationTest` заменить парсинг JSON регулярками на JsonPath. Добавить слайсы
     `@WebMvcTest` (контроллеры) и `@DataJpaTest` (репозитории), AssertJ для ассертов, JaCoCo-порог
     на изменённый код.
-19. **Наблюдаемость.** Логгеров в коде нет: добавить SLF4J в сервисы и `JwtAuthenticationFilter`,
-    аудит security-событий (login success/fail с username и IP). Подключить
+19. **Наблюдаемость.** Логгеров в коде почти нет: добавить SLF4J в сервисы, аудит
+    security-событий (login success/fail с username и IP). Подключить
     `spring-boot-starter-actuator` + Micrometer (экспорт в Prometheus); далее — JSON-логи
     (logstash-logback-encoder) и correlation-id.
-20. **`JwtAuthenticationFilter` и hot path.** `loadUserByUsername` выполняется на каждый запрос
-    (обращение к БД в самом горячем пути): довериться claims из токена (схема и так stateless)
-    либо кэш Caffeine с коротким TTL. В `catch` добавить debug-лог причины невалидного токена
-    вместо молчаливого проглатывания.
 21. **Сборка/CI/рантайм.** Spotless (palantir-java-format) + Error Prone (+ NullAway);
     GitHub Actions на PR (build + тесты); Dependabot/Renovate для зависимостей; переход на
     Java 21 LTS и `spring.threads.virtual.enabled=true` (виртуальные потоки для IO-bound
@@ -685,11 +703,6 @@ HTTP-статус и сообщение по умолчанию, имя конс
 
 22. **OpenAPI-контракт.** springdoc-openapi для описания `/api/v1/**` и генерации TS-клиента
     для `client/` (префикс `/api/v1/**` введён 2026-10-27 вместе с первым предметным эндпоинтом).
-23. **oauth2-resource-server вместо рукописного фильтра.**
-    `spring-boot-starter-oauth2-resource-server` даёт валидацию подписи, `iss`/`aud`/`exp` и
-    интеграцию со Spring Security из коробки; jjwt остаётся для выдачи токенов. При появлении
-    второго сервиса — асимметричная подпись (RS256/ES256) + JWKS-эндпоинт (ротация ключей без
-    даунтайма; HMAC-ключ сейчас не ротируется).
 24. **Сущности.** `Long id` вместо примитива `long` (новые сущности заводятся сразу на `Long`,
     например `Client`; остались `User` и `RefreshToken`); `equals`/`hashCode` по id; аудит-поля
     (`@EnableJpaAuditing`, `@CreatedDate`/`@LastModifiedDate`); `@Version` при первом сценарии

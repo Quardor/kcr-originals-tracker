@@ -1,8 +1,6 @@
 package ru.quard0r.kcrbackend.security;
 
 import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.ExpiredJwtException;
-import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.BeforeEach;
@@ -13,15 +11,14 @@ import ru.quard0r.kcrbackend.model.User;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
-import java.util.Date;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
+// JwtService отвечает только за выдачу; проверка токена — NimbusJwtDecoder
+// (SecurityConfig), пути валидного/истёкшего/подделанного токена покрыты
+// конвертером и интеграционными сценариями.
 class JwtServiceTest {
 
     private static final String SECRET = "test-secret-key-with-at-least-32-bytes!!";
@@ -51,14 +48,10 @@ class JwtServiceTest {
     }
 
     @Test
-    void tokenRoundTripKeepsUserIdAndClaims() {
+    void tokenCarriesUserIdAndClaims() {
         User user = user(42L, "user");
 
         String token = jwtService.generateAccessToken(user);
-
-        assertEquals(42L, jwtService.extractUserId(token));
-        assertTrue(jwtService.isTokenValid(token, new CustomUserDetails(user)));
-        assertFalse(jwtService.isTokenValid(token, new CustomUserDetails(user(43L, "user"))));
 
         Claims claims = parse(token);
         assertEquals("42", claims.getSubject());
@@ -66,6 +59,7 @@ class JwtServiceTest {
         assertEquals("user@mail.com", claims.get("email", String.class));
         assertEquals("OPERATOR", claims.get("roles", String.class));
         assertNotNull(claims.getId());
+        assertNotNull(claims.getExpiration());
     }
 
     @Test
@@ -76,37 +70,5 @@ class JwtServiceTest {
         String second = jwtService.generateAccessToken(user);
 
         assertNotEquals(parse(first).getId(), parse(second).getId());
-    }
-
-    @Test
-    void legacyUsernameSubjectFailsToParseAsUserId() {
-        // До смены claims (п. 13 §10) subject был username: после выката такие токены
-        // невалидны — NumberFormatException ловится фильтром, ответ 401.
-        String legacyToken = Jwts.builder()
-                .subject("user")
-                .issuedAt(new Date())
-                .expiration(new Date(System.currentTimeMillis() + 60_000L))
-                .signWith(key)
-                .compact();
-
-        assertThrows(NumberFormatException.class, () -> jwtService.extractUserId(legacyToken));
-    }
-
-    @Test
-    void expiredTokenFailsToParse() {
-        ReflectionTestUtils.setField(jwtService, "accessTokenExpiration", -1_000L);
-        User user = user(42L, "user");
-
-        String token = jwtService.generateAccessToken(user);
-
-        assertThrows(ExpiredJwtException.class, () -> jwtService.extractUserId(token));
-    }
-
-    @Test
-    void tamperedTokenFailsToParse() {
-        User user = user(42L, "user");
-        String token = jwtService.generateAccessToken(user) + "x";
-
-        assertThrows(JwtException.class, () -> jwtService.extractUserId(token));
     }
 }

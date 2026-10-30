@@ -1,6 +1,5 @@
 package ru.quard0r.kcrbackend.security;
 
-import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -11,6 +10,10 @@ import javax.crypto.SecretKey;
 import java.util.Date;
 import java.util.UUID;
 
+/**
+ * Выдача access-токенов (jjwt). Проверка — на стороне ресурсного сервера:
+ * SecurityConfig собирает NimbusJwtDecoder из того же ключа.
+ */
 @Service
 @RequiredArgsConstructor
 public class JwtService {
@@ -29,27 +32,7 @@ public class JwtService {
                 .claim("roles", user.getRole())
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + accessTokenExpiration))
-                .signWith(jwtSecretKey)
+                .signWith(jwtSecretKey, Jwts.SIG.HS256)
                 .compact();
-    }
-
-    public long extractUserId(String token) {
-        return Long.parseLong(parseClaims(token).getSubject());
-    }
-
-    public boolean isTokenValid(String token, CustomUserDetails userDetails) {
-        return extractUserId(token) == userDetails.user().getId() && !isTokenExpired(token);
-    }
-
-    private boolean isTokenExpired(String token) {
-        return parseClaims(token).getExpiration().before(new Date());
-    }
-
-    private Claims parseClaims(String token) {
-        return Jwts.parser()
-                .verifyWith(jwtSecretKey)
-                .build()
-                .parseSignedClaims(token)
-                .getPayload();
     }
 }
