@@ -99,7 +99,7 @@ controller → service → repository → model
 |---|---|---|
 | id | long | PK, IDENTITY |
 | username | String | not null, unique |
-| password | String | not null (BCrypt-хеш) |
+| password | String | not null (хеш пароля, формат `{bcrypt}$2a$…`, см. §5) |
 | email | String | unique, опционален |
 | role | Role | not null, `@Enumerated(EnumType.STRING)` |
 | failedAttempts | int | колонка `failed_attempts`, not null, default 0 — счётчик неудачных попыток входа (антибрутфорс, §5; `V6__user_account_lockout.sql`) |
@@ -186,7 +186,11 @@ snapshot_date)` покрывает выборку динамики по клие
 
 Схема stateless, без сессий (`SessionCreationPolicy.STATELESS`), CSRF отключён.
 
-- Пароли хранятся как BCrypt-хеш (`BCryptPasswordEncoder`).
+- Пароли хранятся как BCrypt-хеш в формате `DelegatingPasswordEncoder` — с префиксом
+  алгоритма (`{bcrypt}$2a$…`): хеш самоописываем, алгоритм — свойство строки в БД, а не
+  выбор класса; смена дефолта (например, на `{argon2}`) — смена кодировщика, без миграции
+  уже записанных хешей. Хеши, записанные до внедрения префиксов (голый `$2a$…`), матчатся
+  fallback-BCrypt (`setDefaultPasswordEncoderForMatches`) — миграция данных не нужна.
 - Access-токен: подпись HS256 (HMAC-SHA256, ключ из `jwt.secret`; алгоритм закреплён явно
   и в выдаче, и в декодере — совпадение обязательно), subject = `user.getId()`
   (username изменяем — идентификация в токене не должна ломаться при переименовании),
@@ -589,6 +593,14 @@ HTTP-статус и сообщение по умолчанию, имя конс
   пользователь, кэш), `JwtServiceTest` переписан под выдачу-only (2), e2e «токен удалённого
   пользователя → 401 с телом контракта» в `AuthFlowIntegrationTest`; `./gradlew build`
   проходит (76 тестов).
+- п. 15 §10 закрыт (2026-10-31, ветка `feature/auth`): `BCryptPasswordEncoder` заменён на
+  `DelegatingPasswordEncoder` (`PasswordEncoderFactories.createDelegatingPasswordEncoder()`):
+  новые хеши записываются с префиксом алгоритма (`{bcrypt}$2a$…`), дефолт остаётся bcrypt —
+  само хеширование не менялось, это задел: будущая смена алгоритма (Argon2id и т.п.) — смена
+  дефолта кодировщика, без перекладки записанных данных. Существующие хеши без префикса
+  матчатся через `setDefaultPasswordEncoderForMatches` (fallback-BCrypt) — БД не тронута,
+  миграции не потребовались. Тесты: `SecurityConfigPasswordEncoderTest` (3: `{bcrypt}`-префикс
+  encode, матчинг хеша в новом и legacy-формате); `./gradlew build` проходит (79 тестов).
 
 Выявленные проблемы и требуемые изменения собраны в §10 (архитектурные ревью 2026-10-24
 и 2026-10-29); ранее перечислявшиеся здесь «известные особенности» включены туда.
@@ -605,8 +617,6 @@ HTTP-статус и сообщение по умолчанию, имя конс
 
 ### P1 — до первого продакшена
 
-15. **`DelegatingPasswordEncoder`** вместо голого `BCryptPasswordEncoder` (`{bcrypt}`-префикс
-    в хеше) — задел на будущую миграцию на Argon2id без перекладки данных.
 16. **Нормализация email до валидации.** `@Email` отклоняет адрес с краевыми пробелами, хотя
     сервис их тримит; тримить до валидации (собственный constraint-валидатор либо нормализация
     на входе контроллера).
