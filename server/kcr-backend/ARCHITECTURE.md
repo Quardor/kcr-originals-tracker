@@ -45,12 +45,18 @@
 ```
 ru.quard0r.kcrbackend
 ├── KcrBackendApplication   — точка входа (@SpringBootApplication)
+├── bootstrap/              — инициализация при старте (AdminBootstrap — bootstrap первого
+│                             администратора и команда --create-admin, см. §5)
+├── common/                 — общий код без зависимостей от слоёв (EmailNormalizer —
+│                             единая нормализация email-полей запросов, §5)
 ├── config/                 — конфигурация Spring (SecurityConfig: security-цепочка, CORS, бины)
 ├── controller/             — REST-контроллеры (AuthController: /api/v1/auth/**,
 │                             ClientController: /api/v1/clients/**)
 ├── dto/
 │   ├── request/            — входные DTO (records: LoginRequest, RegisterRequest, RefreshRequest,
-│   │                         ClientCreateRequest, ClientUpdateRequest — PATCH-семантика «null = не менять»)
+│   │                         ClientCreateRequest, ClientUpdateRequest — PATCH-семантика «null = не менять»;
+│   │                         email-поля нормализуются в компакт-конструкторе через
+│   │                         common/EmailNormalizer — до Bean Validation, см. §5)
 │   └── response/           — исходящие DTO (records + @Builder: AuthResponse, ErrorResponse,
 │                             ClientResponse, SnapshotResponse, дженерик PageResponse)
 ├── exception/               — контракт ошибок (§6): ErrorCode — enum «код, HTTP-статус,
@@ -230,7 +236,10 @@ snapshot_date)` покрывает выборку динамики по клие
 
 Сценарии (реализованы в `AuthService`; `register`/`login`/`logout` — `@Transactional`, `refresh` — нет,
 см. ниже):
-- `register` — проверка уникальности username и email (нормализованного: blank → null) →
+- `register` — проверка уникальности username и email (нормализация email — `trim` + blank → null —
+  в компакт-конструкторе `RegisterRequest` до Bean Validation: `@Email` видит уже тримнутое
+  значение, п. 16 §10 закрыт 2026-11-01; то же — `contactEmail` в `ClientCreateRequest`/
+  `ClientUpdateRequest`, blank = «данных нет»/«не менять») →
   сохранение (BCrypt, роль OPERATOR) → выдача пары токенов. Конкурентный конфликт уникальности в БД
   ловится `GlobalExceptionHandler` как 409 — с точным кодом по имени констрейнта (§6).
 - `login` — через `authenticationManager.authenticate(...)` (бин в `SecurityConfig`;
@@ -290,6 +299,20 @@ snapshot_date)` покрывает выборку динамики по клие
 `app.cleanup.refresh-token-cron` (по умолчанию `0 0 4 * * *`, локальная зона сервера) вызывает
 `RefreshTokenService.deleteExpired()` → `deleteByExpiryDateBefore(now)`; без job таблица
 `refresh_tokens` росла бы бесконечно.
+
+Bootstrap первого администратора (п. 27 §10, закрыт 2026-11-02) — `AdminBootstrap`
+(`bootstrap/`, `ApplicationRunner`). Без него после чистого деплоя административный API мёртв:
+регистрация всегда создаёт OPERATOR, а создание/правка клиентов защищены `hasRole('ADMIN')`.
+Каждый старт: если пользователей с ролью ADMIN нет (`existsByRole`), учётная запись создаётся
+из `ADMIN_USERNAME`/`ADMIN_PASSWORD` (пароль — тем же `PasswordEncoder`, роль ADMIN, email NULL);
+есть хоть один ADMIN — no-op (идемпотентно). Учётные данные не заданы: prod — fail-fast при
+старте (чистый деплой без возможности управления не должен подниматься), dev — WARN и
+продолжение (значения — из `.env`, см. §7). Занятый username (например, OPERATOR с тем же
+именем) — ошибка конфигурации, fail-fast в обоих профилях. Для эксплуатации — одноразовая
+команда `--create-admin`: создаёт учётную запись из тех же переменных независимо от
+существующих ADMIN (добавление администраторов), после чего приложение завершается
+(`SpringApplication.exit`; при работающем инстансе запускать с `--server.port=0`,
+см. §8).
 
 ## 6. Исключения и контракт ошибок
 
@@ -362,11 +385,15 @@ HTTP-статус и сообщение по умолчанию, имя конс
 | `JWT_SECRET` | dev, prod | HMAC-ключ для подписи JWT, ≥ 32 байт |
 | `DB_URL` | prod | JDBC-URL БД |
 | `DB_USERNAME` | prod; в dev опциональна (по умолчанию `myuser`) | пользователь БД |
+| `ADMIN_USERNAME` | dev опциональна, prod — из окружения | username первого администратора (bootstrap при старте / `--create-admin`, см. §5); при чистом деплое в prod без учётных данных — fail-fast |
+| `ADMIN_PASSWORD` | dev опциональна, prod — из окружения | пароль первого администратора (см. §5) |
 
 Прочие прикладные свойства: `app.cors.allowed-origins` (список через запятую; dev —
 `http://localhost:5173`, переопределяется окружением `APP_CORS_ALLOWED_ORIGINS`, см. §5),
 `app.cleanup.refresh-token-cron` (cron суточной очистки refresh-токенов, общая часть
-`application.yaml`, по умолчанию `0 0 4 * * *`, см. §5) и параметры антибрутфорса (§5):
+`application.yaml`, по умолчанию `0 0 4 * * *`, см. §5), учётные данные bootstrap первого
+администратора `app.admin.username`/`app.admin.password` (пустые по умолчанию, семантика
+применения — в `AdminBootstrap`, см. §5) и параметры антибрутфорса (§5):
 `app.security.auth-rate-limit.capacity` (10) с `refill-duration` (1m) и
 `app.security.account-lockout.max-failed-attempts` (5) с `lock-duration` (15m).
 
@@ -390,6 +417,12 @@ HTTP-статус и сообщение по умолчанию, имя конс
 ./gradlew build          # сборка + тесты
 ./gradlew test           # только тесты
 ./gradlew bootRun        # запуск приложения (нужны PostgreSQL на localhost:5432 и .env, см. §7)
+
+# одноразовое создание администратора из ADMIN_USERNAME/ADMIN_PASSWORD (см. §5);
+# приложение завершается после создания; при работающем инстансе добавить
+# --server.port=0, чтобы не делить порт
+./gradlew bootRun --args='--create-admin'
+java -jar build/libs/kcr-backend-0.0.1-SNAPSHOT.jar --create-admin
 ```
 
 ## 9. Текущее состояние (актуально на 2026-10-30)
@@ -601,6 +634,42 @@ HTTP-статус и сообщение по умолчанию, имя конс
   матчатся через `setDefaultPasswordEncoderForMatches` (fallback-BCrypt) — БД не тронута,
   миграции не потребовались. Тесты: `SecurityConfigPasswordEncoderTest` (3: `{bcrypt}`-префикс
   encode, матчинг хеша в новом и legacy-формате); `./gradlew build` проходит (79 тестов).
+- п. 16 §10 закрыт (2026-11-01, ветка `feature/auth`): нормализация email до валидации —
+  компакт-конструкторы record'ов `RegisterRequest` / `ClientCreateRequest` / `ClientUpdateRequest`
+  (email/contactEmail: `trim` + blank → null), правило — одно на все три DTO, в
+  `common/EmailNormalizer` (пакет `common/` — общий код без зависимостей от слоёв, предвестник
+  целевой структуры §11.5). Jackson собирает record через canonical
+  constructor — нормализация выполняется при десериализации, до `@Valid`: краевые пробелы больше
+  не дают 400 от `@Email`, `@Size(max=255)` проверяет тримнутую длину. Один источник правды:
+  `AuthService.normalizeEmail` удалён — сервисы получают уже нормализованное значение (уникальность
+  email и запись в БД идут по нему же). Семантика: blank email в register → NULL (как и раньше
+  сервисно), в PATCH клиентов blank contactEmail = «не менять» (как null; очистить email пустой
+  строкой через PATCH теперь нельзя — поле не отличает blank от отсутствия, опциональность
+  очистки — вопрос будущего API). Тесты: `EmailNormalizationTest` (3, конструкторы всех трёх DTO),
+  e2e в `AuthFlowIntegrationTest` (register с пробелами → 201 и тримнутый email в БД, дубль по
+  нормализованному значению → 409, blank → NULL) и `ClientApiIntegrationTest` (POST с пробелами
+  вокруг contactEmail → 201 и тримнутое значение, PATCH blank → «не менять»); `./gradlew build`
+  проходит (84 теста).
+- п. 27 §10 закрыт (2026-11-02, ветка `feature/auth`): bootstrap первого администратора —
+  `AdminBootstrap` (`bootstrap/`, `ApplicationRunner`). Условный режим на каждом старте: если
+  пользователей с ролью ADMIN нет (`existsByRole(ADMIN)` — новый метод `UserRepository`),
+  создаётся учётная запись из `ADMIN_USERNAME`/`ADMIN_PASSWORD` (пароль — тем же
+  `PasswordEncoder`, `{bcrypt}`-префикс; роль ADMIN, email NULL); есть хоть один ADMIN — no-op
+  (идемпотентно). Учётные данные пусты: prod — `IllegalStateException` при старте (fail-fast:
+  чистый деплой без возможности управления не должен подниматься), dev — WARN и продолжение;
+  занятый username — fail-fast в обоих профилях (ошибка конфигурации, текст подсказывает
+  выбрать другой `ADMIN_USERNAME`). Для эксплуатации — режим `--create-admin` (тот же раннер,
+  опция `ApplicationArguments`): создаёт учётную запись из тех же переменных независимо от
+  существующих ADMIN (добавление администраторов) и завершает приложение
+  (`SpringApplication.exit`; при работающем инстансе запускать с `--server.port=0`, см. §8).
+  Свойства `app.admin.username`/`app.admin.password` (общая часть `application.yaml`,
+  `${ADMIN_USERNAME:}`/`${ADMIN_PASSWORD:}` — в dev через `.env`; семантика применения
+  в раннере, поэтому prod падает только когда bootstrap действительно нужен), см. §5/§7.
+  Проверено на dev-БД: создание с `{bcrypt}`-хешем, завершение после команды, повторный запуск
+  → fail-fast «already exists». Тесты: `AdminBootstrapTest` (7: no-op при существующем ADMIN,
+  создание с encoded-паролем, dev-skip и prod fail-fast без учётных данных, занятый username,
+  forced-режим с существующими ADMIN и без учётных данных); `./gradlew build` проходит
+  (91 тест).
 
 Выявленные проблемы и требуемые изменения собраны в §10 (архитектурные ревью 2026-10-24
 и 2026-10-29); ранее перечислявшиеся здесь «известные особенности» включены туда.
@@ -617,16 +686,6 @@ HTTP-статус и сообщение по умолчанию, имя конс
 
 ### P1 — до первого продакшена
 
-16. **Нормализация email до валидации.** `@Email` отклоняет адрес с краевыми пробелами, хотя
-    сервис их тримит; тримить до валидации (собственный constraint-валидатор либо нормализация
-    на входе контроллера).
-27. **Bootstrap первого администратора.** Регистрация всегда создаёт `OPERATOR`, а создание и
-    правка клиентов — `hasRole('ADMIN')`; механизма завести первого ADMIN нет — после чистого
-    деплоя административный API мёртв, пока роль не проставят руками в БД. Добавить
-    идемпотентный `ApplicationRunner`: если пользователей с ролью ADMIN нет — создать учётную
-    запись из `ADMIN_USERNAME`/`ADMIN_PASSWORD` (prod — только из окружения, fail-fast; пароль —
-    через тот же `PasswordEncoder`); для эксплуатации дополнительно подходит `CommandLineRunner`
-    -команда `--create-admin`.
 28. **Валидация параметров пагинации.** `PageRequest.of` бросает `IllegalArgumentException`
     при `page < 0` или `size < 1` — `?page=-1` сейчас отдаёт 500; `size` не ограничен сверху —
     `?size=100000` тянет всю таблицу (вектор исчерпания памяти). Ограничить параметры

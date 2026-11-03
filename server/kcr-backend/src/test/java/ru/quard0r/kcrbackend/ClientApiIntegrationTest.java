@@ -192,6 +192,34 @@ class ClientApiIntegrationTest {
                 .andExpect(status().isBadRequest());
     }
 
+    @Test
+    void contactEmailIsNormalizedOnCreateAndUpdate() throws Exception {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        String adminToken = registerAndLogin("itemail-adm-" + suffix, true);
+
+        // Surrounding whitespace used to fail @Email (400); it is trimmed in the
+        // DTO constructor before validation and stored normalized.
+        mockMvc.perform(post("/api/v1/clients")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"kcrCode\":\"kcr_email_" + suffix + "\",\"inn\":\"123456789012\","
+                                + "\"organizationName\":\"Organization\",\"contactEmail\":\" contact@mail.com \"}"))
+                .andExpect(status().isCreated())
+                .andExpect(content().string(containsString("contact@mail.com")));
+
+        Long clientId = jdbcTemplate.queryForObject(
+                "SELECT id FROM clients WHERE kcr_code = ?", Long.class, "kcr_email_" + suffix);
+        assertEquals("contact@mail.com", contactEmail(clientId));
+
+        // Blank contact email is normalized to null = "do not change" (PATCH semantics).
+        mockMvc.perform(patch("/api/v1/clients/" + clientId)
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"contactEmail\":\"   \"}"))
+                .andExpect(status().isOk());
+        assertEquals("contact@mail.com", contactEmail(clientId));
+    }
+
     private Long insertClient(String kcrCode, String organizationName, String clientType, String[] flags) {
         jdbcTemplate.update(
                 "INSERT INTO clients (kcr_code, inn, organization_name, client_type, flags) VALUES (?, ?, ?, ?, ?)",
@@ -232,6 +260,11 @@ class ClientApiIntegrationTest {
     private String manager(Long clientId) {
         return jdbcTemplate.queryForObject(
                 "SELECT manager FROM clients WHERE id = ?", String.class, clientId);
+    }
+
+    private String contactEmail(Long clientId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT contact_email FROM clients WHERE id = ?", String.class, clientId);
     }
 
     private String kcrCode(Long clientId) {
