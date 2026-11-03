@@ -3,6 +3,7 @@ package ru.quard0r.kcrbackend.dto.request;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+import ru.quard0r.kcrbackend.common.EmailNormalizer;
 
 public record RegisterRequest (
         @NotBlank(message = "Username must not be blank")
@@ -16,4 +17,8 @@ public record RegisterRequest (
         @Email(message = "Email must be valid")
         String email
 ) {
+
+    public RegisterRequest {
+        email = EmailNormalizer.normalize(email);
+    }
 }

@@ -24,6 +24,7 @@ import java.util.regex.Pattern;
 import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -299,6 +300,36 @@ class AuthFlowIntegrationTest {
         mockMvc.perform(get("/api/persons").header("Authorization", "Bearer " + accessToken))
                 .andExpect(status().isUnauthorized())
                 .andExpect(content().string(containsString("\"code\":\"AUTHENTICATION_REQUIRED\"")));
+    }
+
+    @Test
+    void registerNormalizesEmailBeforeValidationAndUniquenessCheck() throws Exception {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        String email = "itmail-" + suffix + "@mail.com";
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"itmail-a-" + suffix + "\",\"password\":\"password123\","
+                                + "\"email\":\" " + email + " \"}"))
+                .andExpect(status().isCreated());
+
+        assertEquals(email, jdbcTemplate.queryForObject(
+                "SELECT email FROM users WHERE username = ?", String.class, "itmail-a-" + suffix));
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"itmail-b-" + suffix + "\",\"password\":\"password123\","
+                                + "\"email\":\"" + email + "\"}"))
+                .andExpect(status().isConflict());
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"itmail-c-" + suffix + "\",\"password\":\"password123\","
+                                + "\"email\":\"   \"}"))
+                .andExpect(status().isCreated());
+
+        assertNull(jdbcTemplate.queryForObject(
+                "SELECT email FROM users WHERE username = ?", String.class, "itmail-c-" + suffix));
     }
 
     private record RefreshResponse(int status, String body) {

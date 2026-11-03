@@ -4,6 +4,7 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import ru.quard0r.kcrbackend.common.EmailNormalizer;
 import ru.quard0r.kcrbackend.model.ClientType;
 
 import java.util.List;
@@ -54,4 +55,8 @@ public record ClientCreateRequest (
         @Size(max = 255, message = "Contact email must be up to 255 characters")
         String contactEmail
 ) {
+
+    public ClientCreateRequest {
+        contactEmail = EmailNormalizer.normalize(contactEmail);
+    }
 }

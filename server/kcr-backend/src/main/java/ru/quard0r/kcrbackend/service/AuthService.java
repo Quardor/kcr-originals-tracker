@@ -35,19 +35,17 @@ public class AuthService {
 
     @Transactional
     public AuthResponse register(RegisterRequest request) {
-        String email = normalizeEmail(request.email());
-
         if (userRepository.existsByUsername(request.username())) {
             throw new DomainException(ErrorCode.USERNAME_ALREADY_TAKEN);
         }
-        if (email != null && userRepository.existsByEmail(email)) {
+        if (request.email() != null && userRepository.existsByEmail(request.email())) {
             throw new DomainException(ErrorCode.EMAIL_ALREADY_TAKEN);
         }
 
         User user = userRepository.save(User.builder()
                 .username(request.username())
                 .password(passwordEncoder.encode(request.password()))
-                .email(email)
+                .email(request.email())
                 .role(Role.OPERATOR)
                 .build());
         return issueTokens(user);
@@ -88,9 +86,5 @@ public class AuthService {
                 .accessToken(jwtService.generateAccessToken(user))
                 .refreshToken(refreshTokenService.createRefreshToken(user))
                 .build();
-    }
-
-    private String normalizeEmail(String email) {
-        return email == null || email.isBlank() ? null : email.trim();
     }
 }
