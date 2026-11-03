@@ -11,9 +11,8 @@ import ru.quard0r.kcrbackend.dto.request.ClientUpdateRequest;
 import ru.quard0r.kcrbackend.dto.response.ClientResponse;
 import ru.quard0r.kcrbackend.dto.response.PageResponse;
 import ru.quard0r.kcrbackend.dto.response.SnapshotResponse;
-import ru.quard0r.kcrbackend.exception.ClientAlreadyExistsException;
-import ru.quard0r.kcrbackend.exception.ClientNotFoundException;
-import ru.quard0r.kcrbackend.exception.base.BadRequestException;
+import ru.quard0r.kcrbackend.exception.DomainException;
+import ru.quard0r.kcrbackend.exception.ErrorCode;
 import ru.quard0r.kcrbackend.model.Client;
 import ru.quard0r.kcrbackend.model.ClientType;
 import ru.quard0r.kcrbackend.model.DocumentTransferSnapshot;
@@ -50,7 +49,7 @@ public class ClientService {
 
     public List<SnapshotResponse> getSnapshots(Long clientId, String reportingPeriod) {
         if (!clientRepository.existsById(clientId)) {
-            throw new ClientNotFoundException("Client not found");
+            throw new DomainException(ErrorCode.CLIENT_NOT_FOUND);
         }
         List<DocumentTransferSnapshot> snapshots = isNotBlank(reportingPeriod)
                 ? snapshotRepository.findByClientIdAndReportingPeriodOrderBySnapshotDateAscIdAsc(
@@ -64,7 +63,7 @@ public class ClientService {
     @Transactional
     public ClientResponse create(ClientCreateRequest request) {
         if (clientRepository.existsByKcrCode(request.kcrCode())) {
-            throw new ClientAlreadyExistsException("Client with this KCR code already exists");
+            throw new DomainException(ErrorCode.CLIENT_ALREADY_EXISTS);
         }
         Client client = Client.builder()
                 .kcrCode(request.kcrCode())
@@ -98,7 +97,7 @@ public class ClientService {
         }
         if (request.organizationName() != null) {
             if (request.organizationName().isBlank()) {
-                throw new BadRequestException("Organization name must not be blank");
+                throw new DomainException(ErrorCode.BLANK_ORGANIZATION_NAME);
             }
             client.setOrganizationName(request.organizationName());
         }
@@ -141,7 +140,7 @@ public class ClientService {
 
     private Client getExistingClient(Long id) {
         return clientRepository.findById(id)
-                .orElseThrow(() -> new ClientNotFoundException("Client not found"));
+                .orElseThrow(() -> new DomainException(ErrorCode.CLIENT_NOT_FOUND));
     }
 
     private Specification<Client> matchSearch(String search) {

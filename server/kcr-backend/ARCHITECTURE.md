@@ -31,8 +31,9 @@
 | ORM | Spring Data JPA (Hibernate) | из BOM Boot |
 | БД | PostgreSQL | локальный инстанс |
 | Миграции | Flyway (`spring-boot-flyway` + `flyway-database-postgresql`) | из BOM Boot |
-| Безопасность | Spring Security (stateless, JWT) | из BOM Boot |
-| JWT | jjwt (api/impl/jackson) | 0.12.6 |
+| Безопасность | Spring Security (stateless, JWT: проверка access-токенов — resource server, `spring-boot-starter-oauth2-resource-server`) | из BOM Boot |
+| JWT | jjwt (api/impl/jackson) — только выдача access-токенов | 0.12.6 |
+| Rate limiting | Bucket4j (`bucket4j_jdk17-core`) + Caffeine (кэш бакетов, версия из BOM Boot) | 8.21.0 |
 | Бойлерплейт | Lombok | из BOM Boot |
 | Excel-импорт | Apache POI (`poi-ooxml`) | 5.5.1 |
 | Тесты | JUnit 5 (spring-boot-starter-*-test) | из BOM Boot |
@@ -44,20 +45,36 @@
 ```
 ru.quard0r.kcrbackend
 ├── KcrBackendApplication   — точка входа (@SpringBootApplication)
+├── bootstrap/              — инициализация при старте (AdminBootstrap — bootstrap первого
+│                             администратора и команда --create-admin, см. §5)
+├── common/                 — общий код без зависимостей от слоёв: EmailNormalizer (email-поля
+│                             запросов, §5), KcrCodeNormalizer (канонический вид кода KCR, §4),
+│                             UserIdentityNormalizer (username/email — нижний регистр, §5),
+│                             PageLimits (максимальный размер страницы, §3/§11.4);
+│                             validation/ — доменные constraint-аннотации @Inn / @Kpp / @KcrCode
+│                             с валидаторами — единый источник правил формата для DTO и
+│                             Excel-парсеров (п. 29 §10)
 ├── config/                 — конфигурация Spring (SecurityConfig: security-цепочка, CORS, бины)
 ├── controller/             — REST-контроллеры (AuthController: /api/v1/auth/**,
-│                             ClientController: /api/v1/clients/**)
+│                             ClientController: /api/v1/clients/**, пагинация валидируется
+│                             constraint-аннотациями через PageLimits, п. 28 §10)
 ├── dto/
 │   ├── request/            — входные DTO (records: LoginRequest, RegisterRequest, RefreshRequest,
-│   │                         ClientCreateRequest, ClientUpdateRequest — PATCH-семантика «null = не менять»)
+│   │                         ClientCreateRequest, ClientUpdateRequest — PATCH-семантика «null = не менять»;
+│   │                         нормализация в компакт-конструкторах до Bean Validation: email-поля
+│   │                         через common/EmailNormalizer, username/email — через
+│   │                         common/UserIdentityNormalizer, kcrCode — через
+│   │                         common/KcrCodeNormalizer, см. §5/§4)
 │   └── response/           — исходящие DTO (records + @Builder: AuthResponse, ErrorResponse,
 │                             ClientResponse, SnapshotResponse, дженерик PageResponse)
-├── exception/
-│   ├── base/               — иерархия базовых исключений (см. §6)
-│   └── <Конкретное>Exception — предметные исключения
+├── exception/               — контракт ошибок (§6): ErrorCode — enum «код, HTTP-статус,
+│                             сообщение», DomainException — единственное доменное исключение,
+│                             GlobalExceptionHandler — маппинг в ErrorResponse, включая
+│                             method-validation параметров и catch-all 500 (п. 32 §10)
 ├── imports/                — Excel-импорт (feature-пакет §11.5; `import` — ключевое слово Java):
 │                             ClientExcelParser / SnapshotExcelParser — тонкие адаптеры реальных
-│                             выгрузок → командные DTO (§11.6), формат-валидация внутри; ExcelCells —
+│                             выгрузок → командные DTO (§11.6); форматы ИНН/КПП/кода KCR
+│                             проверяются общими правилами common/validation; ExcelCells —
 │                             чтение ячеек, нормализация заголовков, поиск колонки кода KCR;
 │                             ParseResult/ParseIssue; dto/ (командные DTO + отчёты preview/apply);
 │                             ClientUpsertService / SnapshotImportService — upsert и применение;
@@ -66,9 +83,16 @@ ru.quard0r.kcrbackend
 │                             + enum'ы (Role, ClientType)
 ├── repository/             — Spring Data JPA репозитории (UserRepository, RefreshTokenRepository,
 │                             ClientRepository, DocumentTransferSnapshotRepository)
-├── security/               — JWT-инфраструктура (JwtService, JwtAuthenticationFilter,
+├── scheduling/             — фоновые задачи (RefreshTokenCleanupJob — ежедневная очистка
+│                             просроченных refresh-токенов, см. §5)
+├── security/               — JWT-инфраструктура (JwtService — выдача access-токенов,
+│                             JwtAuthenticationConverter — валидированный токен →
+│                             аутентификация (Caffeine-кэш principal'ов),
 │                             CustomUserDetailsService, RestAuthenticationEntryPoint)
-└── service/                — бизнес-логика (AuthService, RefreshTokenService, ClientService)
+│                             + AuthRateLimiter — антибрутфорс-лимитер login/register (см. §5)
+└── service/                — бизнес-логика (AuthService, RefreshTokenService,
+                              AccountLockoutService — счётчик неудачных входов и блокировка
+                              аккаунта, ClientService)
 ```
 
 Направление зависимостей строго сверху вниз:
@@ -91,10 +115,12 @@ controller → service → repository → model
 | Поле | Тип | Ограничения |
 |---|---|---|
 | id | long | PK, IDENTITY |
-| username | String | not null, unique |
-| password | String | not null (BCrypt-хеш) |
-| email | String | unique, опционален |
+| username | String | not null; хранится в нижнем регистре (нормализация `common/UserIdentityNormalizer` при записи и поиске), уникальность регистронезависима — функциональный unique-индекс `idx_users_username_lower` по `lower(username)` (`V7__users_case_insensitive_identity.sql`, п. 30 §10) |
+| password | String | not null (хеш пароля, формат `{bcrypt}$2a$…`, см. §5) |
+| email | String | опционален; как username — нижний регистр + функциональный unique-индекс `idx_users_email_lower` (NULL не конфликтуют) |
 | role | Role | not null, `@Enumerated(EnumType.STRING)` |
+| failedAttempts | int | колонка `failed_attempts`, not null, default 0 — счётчик неудачных попыток входа (антибрутфорс, §5; `V6__user_account_lockout.sql`); инкремент/сброс — атомарные bulk-UPDATE (п. 31 §10) |
+| lockedUntil | Instant | колонка `locked_until`, опционален — до этого момента вход запрещён (блокировка после N неудач); null/прошлое — не заблокирован |
 
 ### Role (enum)
 `ADMIN`, `OPERATOR`. При самостоятельной регистрации (`register`) всегда назначается `OPERATOR`.
@@ -112,6 +138,10 @@ controller → service → repository → model
 | expiryDate | Instant | not null |
 | rotatedDate | Instant | колонка `rotated_date`, опционален: null — активный токен, значение — уже ротирован (признак для reuse-detection, см. §5) |
 
+Индекс `idx_refresh_tokens_user_id (user_id)` (миграция `V5__refresh_tokens_user_id_index.sql`):
+Postgres не создаёт индексы на FK-колонки автоматически — без него отзыв семейства токенов
+(`deleteByUser`) и logout уходили в seq scan.
+
 ### Client (`clients`)
 Первая предметная сущность — карточка клиента, идентифицируемого кодом KCR. Код KCR — естественный
 уникальный ключ; PK — суррогатный `id` по конвенции остальных таблиц. Обязательные поля — код KCR,
@@ -121,9 +151,9 @@ controller → service → repository → model
 | Поле | Тип | Ограничения |
 |---|---|---|
 | id | Long | PK, IDENTITY |
-| kcrCode | String | not null, unique — основной идентификатор клиента |
-| inn | String | not null, varchar(12) |
-| kpp | String | varchar(9), опционален |
+| kcrCode | String | not null, unique — основной идентификатор клиента; канонический вид `^[A-Z]{3}\d{5}$` — при записи нормализуется к верхнему регистру (`@KcrCode` + `common/KcrCodeNormalizer`, парсер импорта — то же правило), уникальность обычным unique (citext не нужен, пп. 29–30 §10) |
+| inn | String | not null, varchar(12) — 10 или 12 цифр (`@Inn`: единое с парсером импорта правило, юрлицо с 10-значным ИНН создаётся и вручную, п. 29 §10) |
+| kpp | String | varchar(9), опционален — 9 цифр (`@Kpp`) |
 | organizationName | String | not null |
 | internalId | String | опционален — внутренний ID / лицевой счёт из выгрузки |
 | clientType | ClientType | enum, опционален; в БД varchar + CHECK по списку значений (как `role` у `users`) |
@@ -166,75 +196,195 @@ controller → service → repository → model
 
 Индекс `idx_document_transfer_snapshots_client_period_date (client_id, reporting_period,
 snapshot_date)` покрывает выборку динамики по клиенту/периоду и поиск последнего среза для
-наследования total (индекс на FK создаётся явно — Postgres не строит их автоматически, см. п. 9 §10).
+наследования total (индекс на FK создаётся явно — Postgres не строит их автоматически; то же
+для `refresh_tokens.user_id`, см. выше).
 
 ## 5. Аутентификация (JWT)
 
 Схема stateless, без сессий (`SessionCreationPolicy.STATELESS`), CSRF отключён.
 
-- Пароли хранятся как BCrypt-хеш (`BCryptPasswordEncoder`).
-- Access-токен: подпись HMAC-SHA (ключ из `jwt.secret`), subject = username,
-  claims: `email`, `roles`; срок — `jwt.access-expiration` (15 мин).
+- Пароли хранятся как BCrypt-хеш в формате `DelegatingPasswordEncoder` — с префиксом
+  алгоритма (`{bcrypt}$2a$…`): хеш самоописываем, алгоритм — свойство строки в БД, а не
+  выбор класса; смена дефолта (например, на `{argon2}`) — смена кодировщика, без миграции
+  уже записанных хешей. Хеши, записанные до внедрения префиксов (голый `$2a$…`), матчатся
+  fallback-BCrypt (`setDefaultPasswordEncoderForMatches`) — миграция данных не нужна.
+- Access-токен: подпись HS256 (HMAC-SHA256, ключ из `jwt.secret`; алгоритм закреплён явно
+  и в выдаче, и в декодере — совпадение обязательно), subject = `user.getId()`
+  (username изменяем — идентификация в токене не должна ломаться при переименовании),
+  claims: `preferred_username` (бывший subject, для отображения/фронта), `email`, `roles`,
+  `jti` (UUID, уникален у каждого токена — задел под серверный блок-лист); срок —
+  `jwt.access-expiration` (15 мин). Токены, выданные до смены subject (раньше username),
+  после выката невалидны: нечисловой subject → `InvalidBearerTokenException` в конвертере → 401;
+  клиент обновляет пару через `/refresh` (refresh-токены от схемы access-токена не зависят).
 - Refresh-токен: сырой UUID отдаётся клиенту, в БД хранится только его SHA-256-хеш,
   поиск — по хешу; срок — `jwt.refresh-expiration` (7 дней).
-- `JwtAuthenticationFilter` (before `UsernamePasswordAuthenticationFilter`) читает заголовок
-  `Authorization: Bearer <token>`, валидирует и заполняет `SecurityContext`. Авто-регистрация фильтра
-  в servlet-контейнере отключена через `FilterRegistrationBean` (иначе он вызывается вне security-цепочки
-  и его SecurityContext затирается).
+- Проверка access-токена — resource server Spring Security (п. 23 §10, заменён рукописный
+  `JwtAuthenticationFilter`): `BearerTokenAuthenticationFilter` → `NimbusJwtDecoder`
+  (бин в `SecurityConfig`: валидация HMAC-подписи и срока, один парсинг на запрос) →
+  `JwtAuthenticationConverter` (`security/`): subject → id, пользователь загружается
+  `CustomUserDetailsService.loadUserById` через Caffeine-кэш (TTL 30 с, максимум 10 000 —
+  БД выведена из горячего пути, п. 20 §10; удаление пользователя и смена роли подхватываются
+  в пределах TTL), итог — `UserAuthenticationToken` с principal `CustomUserDetails`
+  (контроллеры и сервисы не зависят от типа токена ресурсного сервера). jjwt остаётся только
+  на выдачу (`JwtService`). Любая неудача — испорченный/истёкший токен, нечисловой subject,
+  неизвестный пользователь — `AuthenticationException` → 401 (не 500).
 - `RestAuthenticationEntryPoint` отдаёт единый контракт ошибок неаутентифицированным запросам:
-  **401** с телом `ErrorResponse` (JSON) вместо дефолтного 403.
+  **401** с телом `ErrorResponse` (JSON) вместо дефолтного 403. Подключён и в
+  `exceptionHandling`, и в `oauth2ResourceServer`: ошибки самого bearer-фильтра идут через
+  его failure handler, а не через exceptionHandling. Причина 401 (нет токена, плохая подпись,
+  истёк, неизвестный пользователь) — в debug-лог, ответ клиенту одинаков и причину не раскрывает.
 - CORS: бин `CorsConfigurationSource` + `.cors(...)` в цепочке; источники — свойство
   `app.cors.allowed-origins` (список через запятую; в dev — `http://localhost:5173`, переопределяется
   переменной окружения `APP_CORS_ALLOWED_ORIGINS`). Разрешены методы GET/POST/PUT/PATCH/DELETE/OPTIONS
   и заголовки `Authorization`, `Content-Type`; credentials не включены (токен — в заголовке). Пустой
   список (по умолчанию) — кросс-доменные запросы не разрешены, same-origin работает без ограничений.
-- Публичные маршруты: `/api/v1/auth/**`; всё остальное — только аутентифицированным.
+- Публичные маршруты: `/api/v1/auth/**` — кроме `/api/v1/auth/logout` (матчер `authenticated()`
+  в `SecurityConfig` стоит раньше permitAll); всё остальное — только аутентифицированным.
 - Включена method security (`@EnableMethodSecurity`) — можно использовать `@PreAuthorize` по ролям.
 - `CustomUserDetailsService` возвращает `CustomUserDetails` — record-обёртку над сущностью `User`
-  (роль → authority `ROLE_<ROLE>`); она же — principal в `SecurityContext` после фильтра и в
+  (роль → authority `ROLE_<ROLE>`); она же — principal в `SecurityContext` после конвертера и в
   результате `authenticate(...)`.
 
-Сценарии (реализованы в `AuthService`; `register`/`login` — `@Transactional`, `refresh` — нет,
+Сценарии (реализованы в `AuthService`; `register`/`login`/`logout` — `@Transactional`, `refresh` — нет,
 см. ниже):
-- `register` — проверка уникальности username и email (нормализованного: blank → null) →
-  сохранение (BCrypt, роль OPERATOR) → выдача пары токенов. Конкурентный конфликт уникальности в БД
-  ловится `GlobalExceptionHandler` как 409.
-- `login` — через `authenticationManager.authenticate(...)` (бин в `SecurityConfig`;
+- `register` — проверка уникальности username и email (нормализация — в компакт-конструкторе
+  `RegisterRequest` до Bean Validation: email — `trim` + blank → null (п. 16 §10, то же —
+  `contactEmail` в `ClientCreateRequest`/`ClientUpdateRequest`, blank = «данных нет»/«не менять»);
+  username и email — к нижнему регистру через `common/UserIdentityNormalizer` (п. 30 §10):
+  в БД пишутся уже приведённые значения, уникальность — функциональные unique-индексы по
+  `lower(...)`), → сохранение (BCrypt, роль OPERATOR) → выдача пары токенов. Конкурентный
+  конфликт уникальности в БД ловится `GlobalExceptionHandler` как 409 — с точным кодом по имени
+  констрейнта/индекса (§6).
+- `login` — username нормализуется к нижнему регистру в `LoginRequest` (совпадает с записями в
+  БД: вход не чувствителен к регистру, `Admin`/`admin` — один аккаунт) — далее через
+  `authenticationManager.authenticate(...)` (бин в `SecurityConfig`;
   `DaoAuthenticationProvider` собирается из бинов `CustomUserDetailsService` + `PasswordEncoder`):
   любой `AuthenticationException` → единый 401 "Invalid credentials". Тайминг-атака на
   перечисление usernames закрыта самим провайдером: при `UsernameNotFoundException` он выполняет
   холостую bcrypt-сверку (`mitigateAgainstTimingAttack`), время ответа не выдаёт существование
   username. Сущность для выдачи токенов достаётся из principal (`CustomUserDetails.user()`).
-- `refresh` — ротация одним методом `RefreshTokenService.rotate(rawToken)` (SELECT по хешу с
-  JOIN FETCH пользователя): неизвестный и просроченный токен → 401 (просроченный удаляется),
-  повторное предъявление ротированного токена (reuse-detection, паттерн token family) → отзыв
-  всех токенов пользователя (`deleteByUser`) и 401; активный токен помечается `rotated_date`
-  и заменяется новым. `rotate` возвращает `Optional` и не бросает исключение изнутри транзакции,
-  а `AuthService.refresh` намеренно без `@Transactional` — иначе откат транзакции по 401 отменял
-  бы уже сделанный отзыв семейства.
+  Любая неудача фиксируется счётчиком антибрутфорса (см. ниже), успех — сбрасывает его.
+- `refresh` — ротация одним методом `RefreshTokenService.rotate(rawToken)` в одной транзакции:
+  чтение по хешу под `@Lock(PESSIMISTIC_WRITE)` (SELECT … FOR UPDATE — конкурентные `/refresh`
+  с одним токеном сериализуются: двух новых пар токенов не выдаётся, второй запрос детерминированно
+  видит ротированный токен и попадает в reuse-detection, семейство отзывается вместе со свежим
+  токеном победителя — клиент перелогинивается). FOR UPDATE — только на строку `refresh_tokens`:
+  поиск без JOIN FETCH (пользователь инициализируется в транзакции через `Hibernate.unproxy`,
+  OSIV выключен), иначе блокировка строки `users` вместе с `deleteByUser` создавала бы дедлок при
+  параллельном refresh двух разных токенов одного пользователя. Неизвестный и просроченный токен →
+  401 (просроченный удаляется), повторное предъявление ротированного токена (reuse-detection,
+  паттерн token family) → отзыв всех токенов пользователя (`deleteByUser`) и 401; активный токен
+  помечается `rotated_date` и заменяется новым. `rotate` возвращает `Optional` и не бросает
+  исключение изнутри транзакции, а `AuthService.refresh` намеренно без `@Transactional` — иначе
+  откат транзакции по 401 отменял бы уже сделанный отзыв семейства.
+- `logout` — `POST /api/v1/auth/logout`, требует access-токен (иначе 401): пользователь берётся из
+  principal (`@AuthenticationPrincipal CustomUserDetails`), отзываются **все** refresh-токены
+  пользователя (`RefreshTokenService.revokeAllForUser` → `deleteByUser`) — logout закрывает все
+  устройства/сессии, ответ 204. Выданный access-токен остаётся технически валиден до истечения
+  срока (≤ 15 мин): схема stateless, серверного блок-листа токенов нет, хотя `jti` для него
+  уже заложен (см. выше) — это осознанный компромисс (потребовалось бы общее состояние).
 
-## 6. Иерархия исключений
+Антибрутфорс (п. 12 §10, закрыт 2026-10-28) — два независимых механизма:
 
+1. **Rate limiting `POST /api/v1/auth/login|register`.** `AuthRateLimiter` (`security/`) вызывается
+   из `AuthController` до сервиса: token bucket (Bucket4j) на пару username+IP (IP — первый адрес
+   `X-Forwarded-For`, при отсутствии заголовка `remoteAddr`; username — уже нормализованный из
+   `LoginRequest`/`RegisterRequest`). Переполнение →
+   `DomainException(TOO_MANY_AUTH_ATTEMPTS)` → **429** с телом `ErrorResponse`. Бакеты in-memory — Caffeine-кэш
+   (`maximumSize` 100 000, `expireAfterAccess` 1 ч; вытеснение простаивающих ключей предохраняет
+   карту от роста под скриптовым перебором username). Состояние локально для инстанса: при
+   масштабировании на несколько инстансов каждый считает лимит независимо — общий store
+   (например, Redis) при необходимости позже. Ограничение по паре username+IP не сдерживает
+   массовую регистрацию/перебор с ротацией username с одного IP — при необходимости добавляется
+   отдельный IP-only бакет.
+2. **Блокировка аккаунта.** `users.failed_attempts` / `users.locked_until` (миграция
+   `V6__user_account_lockout.sql`). Любая неудачная попытка входа (в том числе повторной попыткой
+   заблокированного аккаунта — блокировка продлевается) инкрементит счётчик; при достижении
+   порога (`app.security.account-lockout.max-failed-attempts`, 5) ставится
+   `locked_until = now + lock-duration` (15 мин). Успешный вход сбрасывает счётчик и блокировку.
+   Учёт при загрузке: `CustomUserDetails.isAccountNonLocked()` — `DaoAuthenticationProvider`
+   отклоняет заблокированный аккаунт до сверки пароля (`LockedException`), ответ — тот же единый
+   401 "Invalid credentials", причина не раскрывается. Инкремент выполняет
+   `AccountLockoutService.registerFailedLogin` атомарным bulk-UPDATE
+   (`UserRepository.registerFailedLogin`: `failedAttempts + 1` и `lockedUntil` по `case` при
+   достижении порога — одним UPDATE на уровне строки, п. 31 §10; read-modify-write над сущностью
+   терял инкременты при параллельных неудачных попытках) в отдельной транзакции (`REQUIRES_NEW`):
+   внешний `login` помечен `@Transactional` и откатывается по 401 — без отдельной транзакции
+   откат стирал бы инкремент (тот же принцип, что у refresh-ротации: мутация-последствие живёт
+   вне откатывающейся транзакции, см. `refresh` выше). Сброс при успехе — симметричный условный
+   bulk-UPDATE (`resetFailedLogins`: чистый аккаунт не затрагивается).
+
+Очистка: просроченные токены (в том числе уже ротированные) удаляет `RefreshTokenCleanupJob`
+(`scheduling/`, `@EnableScheduling` на `KcrBackendApplication`) — `@Scheduled`-cron
+`app.cleanup.refresh-token-cron` (по умолчанию `0 0 4 * * *`, локальная зона сервера) вызывает
+`RefreshTokenService.deleteExpired()` → `deleteByExpiryDateBefore(now)`; без job таблица
+`refresh_tokens` росла бы бесконечно.
+
+Bootstrap первого администратора (п. 27 §10, закрыт 2026-11-02) — `AdminBootstrap`
+(`bootstrap/`, `ApplicationRunner`). Без него после чистого деплоя административный API мёртв:
+регистрация всегда создаёт OPERATOR, а создание/правка клиентов защищены `hasRole('ADMIN')`.
+Каждый старт: если пользователей с ролью ADMIN нет (`existsByRole`), учётная запись создаётся
+из `ADMIN_USERNAME`/`ADMIN_PASSWORD` (username — через `UserIdentityNormalizer` к нижнему
+регистру, как все записи `users`; пароль — тем же `PasswordEncoder`, роль ADMIN, email NULL);
+есть хоть один ADMIN — no-op (идемпотентно). Учётные данные не заданы: prod — fail-fast при
+старте (чистый деплой без возможности управления не должен подниматься), dev — WARN и
+продолжение (значения — из `.env`, см. §7). Занятый username (например, OPERATOR с тем же
+именем — exists-проверка по нормализованному значению) — ошибка конфигурации, fail-fast в
+обоих профилях. Для эксплуатации — одноразовая команда `--create-admin`: создаёт учётную
+запись из тех же переменных независимо от существующих ADMIN (добавление администраторов),
+после чего приложение завершается (`SpringApplication.exit`; при работающем инстансе
+запускать с `--server.port=0`, см. §8).
+
+## 6. Исключения и контракт ошибок
+
+Единая точка правды об ошибках API — enum `ErrorCode` (пакет `exception/`): каждый код несёт
+HTTP-статус и сообщение по умолчанию, имя константы — машиночитаемый код из ответа. Сервисы
+бросают единственное доменное исключение `DomainException(ErrorCode)`; отдельный класс на каждый
+статус не заводится (п. 14 §10, 2026-10-30: прежняя иерархия `BasicException`/`HttpException` +
+6 предметных классов дублировала `HttpStatus` и ломала семантику is-a — наследник
+`BadRequestException` отвечал 409/401/404).
+
+`GlobalExceptionHandler` (`@RestControllerAdvice`) маппит `DomainException` и ошибки фреймворка
+в единый `ErrorResponse`:
+
+```json
+{ "code": "CLIENT_NOT_FOUND", "message": "Client not found", "timestamp": "2026-10-30T12:00:00Z" }
 ```
-RuntimeException
-└── BasicException                       (base/,RuntimeException с сообщением)
-    └── HttpException (abstract)         (base/, abstract HttpStatus getHttpStatus())
-        ├── BadRequestException          (base/, по умолчанию 400)
-        │   ├── CredentialsAlreadyExistsException → 409 CONFLICT
-        │   ├── ClientAlreadyExistsException      → 409 CONFLICT
-        │   ├── InvalidCredentialsException       → 401 UNAUTHORIZED
-        │   ├── UserNotFoundException             → 404 NOT_FOUND
-        │   └── ClientNotFoundException           → 404 NOT_FOUND
-        └── ServerException              (base/, 500 INTERNAL_SERVER_ERROR)
-```
 
-`GlobalExceptionHandler` (`@RestControllerAdvice`) перехватывает `HttpException` и возвращает
-`ErrorResponse(message, timestamp)` с соответствующим HTTP-статусом. Сервисы бросают только
-доменные исключения; маппинг в HTTP — исключительная зона ответственности хендлера. Дополнительно
-хендлер покрывает: `MethodArgumentNotValidException` (400, сводка ошибок валидации DTO),
-`HttpMessageNotReadableException` (400, невалидный JSON), `MethodArgumentTypeMismatchException`
-(400, несовместимое значение query/path-параметра) и `DataIntegrityViolationException`
-(409, гонка уникальности username/email при конкурентной регистрации).
+- `code` — машиночитаемый код для фронтенда; `timestamp` — ISO-8601 (`Instant`), не epoch-millis;
+  `message` — человекочитаемое пояснение (для ошибок валидации — сводка по полям).
+- Реестр кодов (все — значения `ErrorCode`):
+
+| Код | HTTP | Источник |
+|---|---|---|
+| `AUTHENTICATION_REQUIRED` | 401 | `RestAuthenticationEntryPoint` (единый контракт 401, §5) |
+| `INVALID_CREDENTIALS` | 401 | login (провайдер вернул `AuthenticationException`) |
+| `INVALID_REFRESH_TOKEN` | 401 | refresh (неизвестный/просроченный/ротированный токен) |
+| `USERNAME_ALREADY_TAKEN` / `EMAIL_ALREADY_TAKEN` | 409 | register: exists-проверка и гонка в БД (констрейнт) |
+| `TOO_MANY_AUTH_ATTEMPTS` | 429 | `AuthRateLimiter` (антибрутфорс, §5) |
+| `CLIENT_NOT_FOUND` | 404 | карточка/срезы/PATCH клиента |
+| `CLIENT_ALREADY_EXISTS` | 409 | POST /clients: exists-проверка и гонка в БД (констрейнт) |
+| `BLANK_ORGANIZATION_NAME` | 400 | PATCH /clients (пустое название) |
+| `INVALID_SORT_FIELD` / `INVALID_SORT_DIRECTION` | 400 | GET /clients (whitelist сортировки) |
+| `VALIDATION_FAILED` | 400 | `MethodArgumentNotValidException` (Bean Validation DTO) и `HandlerMethodValidationException` (встроенная method-validation параметров контроллера — пагинация, п. 28 §10) |
+| `MALFORMED_REQUEST_BODY` | 400 | `HttpMessageNotReadableException` (невалидный JSON) |
+| `INVALID_REQUEST_PARAMETER` | 400 | `MethodArgumentTypeMismatchException` (query/path-параметр) |
+| `RESOURCE_NOT_FOUND` | 404 | `NoResourceFoundException` (несуществующий маршрут) |
+| `DATA_CONFLICT` | 409 | нарушение целостности БД по неизвестному констрейнту |
+| `SHA256_UNAVAILABLE` | 500 | JRE без SHA-256 (недостижимо на стандартном JRE) |
+| `INTERNAL_ERROR` | 500 | catch-all `@ExceptionHandler(Exception.class)` — непредвиденное исключение (п. 32 §10); причина — только в лог, ответ нейтрален. Отказ авторизации (`AccessDeniedException` от `@PreAuthorize`) в catch-all не попадает: отдельный хендлер перебрасывает исключение в security-фильтр — 403 решается `ExceptionTranslationFilter` |
+
+- `DataIntegrityViolationException` (гонка «exists-проверка + save» при конкурентной записи)
+  различается по имени нарушенного констрейнта/индекса: Hibernate
+  `ConstraintViolationException#getConstraintName`, при отсутствии обёртки в цепочке причин —
+  парсинг сообщения драйвера; `uk_users_username`/`idx_users_username_lower` →
+  `USERNAME_ALREADY_TAKEN`, `uk_users_email`/`idx_users_email_lower` → `EMAIL_ALREADY_TAKEN`,
+  `uk_clients_kcr_code` → `CLIENT_ALREADY_EXISTS`, прочее/неизвестное → `DATA_CONFLICT`
+  (всё — 409; `uk_*` — констрейнты V1/V3, `idx_*_lower` — функциональные unique-индексы
+  V7, п. 30 §10; до п. 14 любое нарушение отвечало «Username or email already taken»).
+- Сервисы бросают только `DomainException`; маппинг в HTTP — исключительная зона ответственности
+  хендлера. Неаутентифицированным `RestAuthenticationEntryPoint` отдаёт тот же контракт
+  (`AUTHENTICATION_REQUIRED`).
 
 ## 7. Конфигурация
 
@@ -258,9 +408,17 @@ RuntimeException
 | `JWT_SECRET` | dev, prod | HMAC-ключ для подписи JWT, ≥ 32 байт |
 | `DB_URL` | prod | JDBC-URL БД |
 | `DB_USERNAME` | prod; в dev опциональна (по умолчанию `myuser`) | пользователь БД |
+| `ADMIN_USERNAME` | dev опциональна, prod — из окружения | username первого администратора (bootstrap при старте / `--create-admin`, см. §5); при чистом деплое в prod без учётных данных — fail-fast |
+| `ADMIN_PASSWORD` | dev опциональна, prod — из окружения | пароль первого администратора (см. §5) |
 
 Прочие прикладные свойства: `app.cors.allowed-origins` (список через запятую; dev —
-`http://localhost:5173`, переопределяется окружением `APP_CORS_ALLOWED_ORIGINS`, см. §5).
+`http://localhost:5173`, переопределяется окружением `APP_CORS_ALLOWED_ORIGINS`, см. §5),
+`app.cleanup.refresh-token-cron` (cron суточной очистки refresh-токенов, общая часть
+`application.yaml`, по умолчанию `0 0 4 * * *`, см. §5), учётные данные bootstrap первого
+администратора `app.admin.username`/`app.admin.password` (пустые по умолчанию, семантика
+применения — в `AdminBootstrap`, см. §5) и параметры антибрутфорса (§5):
+`app.security.auth-rate-limit.capacity` (10) с `refill-duration` (1m) и
+`app.security.account-lockout.max-failed-attempts` (5) с `lock-duration` (15m).
 
 Для локальной разработки секреты кладутся в `server/kcr-backend/.env` (копия шаблона
 `.env.example`; сам `.env` в `.gitignore`). Профиль `dev` подключает его через
@@ -282,9 +440,15 @@ RuntimeException
 ./gradlew build          # сборка + тесты
 ./gradlew test           # только тесты
 ./gradlew bootRun        # запуск приложения (нужны PostgreSQL на localhost:5432 и .env, см. §7)
+
+# одноразовое создание администратора из ADMIN_USERNAME/ADMIN_PASSWORD (см. §5);
+# приложение завершается после создания; при работающем инстансе добавить
+# --server.port=0, чтобы не делить порт
+./gradlew bootRun --args='--create-admin'
+java -jar build/libs/kcr-backend-0.0.1-SNAPSHOT.jar --create-admin
 ```
 
-## 9. Текущее состояние (актуально на 2026-10-26)
+## 9. Текущее состояние (актуально на 2026-11-03)
 
 Готово:
 - каркас приложения, SecurityConfig (stateless JWT, `/api/auth/**` публичные), JWT-инфраструктура
@@ -391,57 +555,202 @@ RuntimeException
   строки (пустой код); срез — 12764 команды, 8 ошибок (по одному «#N/A» на лист + реальные
   дубли ISE83063 в двух листах). Тесты: `ClientExcelParserTest` (9), `SnapshotExcelParserTest`
   (7) — синтетические фикстуры в памяти, воспроизводящие лейауты реальных файлов (реальные
-  данные в репозиторий не попадают); `./gradlew build` проходит (49 тестов). Шаг 3 §11.8
-  выполнен 2026-11-04 (ветка `feature/client`): `ClientUpsertService` (upsert по коду KCR без
-  удаления отсутствующих, patch-семантика — null в файле не затирает поле, новый клиент без
-  ИНН/названия — построчная ошибка отчёта), `SnapshotImportService` (сопоставление по коду,
-  наследование `total_documents` от последнего среза клиента и периода) и эндпоинты
-  preview/применение — `ImportController` (§11.4). Не сделано: пересчёт категорий и события
-  `IMPORT` — вместе с `V6`/`client_events` (пп. 1–2 §11.8).
+  данные в репозиторий не попадают); `./gradlew build` проходит (49 тестов). Осталось шагом
+  3 §11.8: upsert-сервис (без удаления отсутствующих, наследование total, события `IMPORT`)
+  и эндпоинты preview/применение.
+- п. 8 §10 закрыт (2026-10-28, ветка `feature/auth`): refresh-флоу защищён от гонки — в
+  `RefreshTokenService.rotate` чтение токена по хешу переведено на `findByTokenHashForUpdate`
+  с `@Lock(LockModeType.PESSIMISTIC_WRITE)` (SELECT … FOR UPDATE) в одной транзакции с пометкой
+  ротации и вставкой нового токена; конкурентные `/refresh` с одним токеном сериализуются —
+  выдача двух пар токенов из одного невозможна, второй запрос детерминированно видит
+  ротированный токен (reuse → отзыв семейства, включая свежий токен победителя; клиент
+  перелогинивается). JOIN FETCH из залоченного запроса убран: FOR UPDATE по join блокировал бы
+  и строку `users`, создавая окно дедлока с `deleteByUser` при параллельном refresh двух
+  разных токенов одного пользователя; пользователь инициализируется в транзакции
+  (`Hibernate.unproxy`, OSIV выключен). Тесты: конкурентный сценарий в
+  `AuthFlowIntegrationTest` (4 потока × один токен: ровно один 200, остальные 401, токен
+  победителя отозван, перелогин работает); `./gradlew build` проходит (50 тестов).
+- п. 9 §10 закрыт (2026-10-28, ветка `feature/auth`): очистка просроченных refresh-токенов +
+  индекс FK. `@EnableScheduling` на `KcrBackendApplication`; `RefreshTokenCleanupJob`
+  (пакет `scheduling/`) по cron `app.cleanup.refresh-token-cron` (общая часть
+  `application.yaml`, по умолчанию `0 0 4 * * *`) раз в сутки вызывает
+  `RefreshTokenService.deleteExpired()` → новый метод репозитория
+  `deleteByExpiryDateBefore(now)` (возвращает число удалённых, job логирует его). Индекс
+  `idx_refresh_tokens_user_id` — `@Table(indexes=…)` на `RefreshToken` + миграция
+  `V5__refresh_tokens_user_id_index.sql` (dev-БД: применена, индекс проверен). Тесты:
+  `RefreshTokenServiceTest` (делегирование), `RefreshTokenCleanupJobTest` (2).
+- п. 10 §10 закрыт (2026-10-28, ветка `feature/auth`): `POST /api/v1/auth/logout` — требует
+  access-токен (отдельный матчер `authenticated()` в `SecurityConfig` перед permitAll
+  `/api/v1/auth/**`), пользователь — из `@AuthenticationPrincipal CustomUserDetails`, отзываются
+  все refresh-токены (`AuthService.logout` → `RefreshTokenService.revokeAllForUser` →
+  задействован `deleteByUser`), ответ 204; access-токен живёт до истечения срока (stateless,
+  блок-листа нет, см. §5). Тесты: `AuthServiceTest`/`RefreshTokenServiceTest` (делегирование),
+  e2e-сценарий в `AuthFlowIntegrationTest` (401 без токена, 204 с токеном, оба refresh-токена
+  двух сессий мертвы, повторный login работает); `./gradlew build` проходит (56 тестов).
+- п. 12 §10 закрыт (2026-10-28, ветка `feature/auth`): антибрутфорс — rate limiting
+  `POST /api/v1/auth/login|register` (`AuthRateLimiter` в `security/`, Bucket4j
+  `bucket4j_jdk17-core` 8.21.0 + Caffeine-кэш бакетов; token bucket на пару username+IP, IP —
+  первый адрес `X-Forwarded-For` либо `remoteAddr`; переполнение → новый
+  `TooManyRequestsException` → 429 в едином контракте `ErrorResponse`) и блокировка аккаунта
+  после N неудачных попыток (миграция `V6__user_account_lockout.sql`: `users.failed_attempts`
+  int NOT NULL DEFAULT 0, `users.locked_until` timestamptz; поля в `User`, порог/длительность —
+  `app.security.account-lockout.*`; учёт при загрузке — `CustomUserDetails.isAccountNonLocked()`
+  → провайдер отклоняет до сверки пароля, ответ — единый 401; инкремент —
+  `AccountLockoutService.registerFailedLogin` в `REQUIRES_NEW`-транзакции, иначе откат
+  `@Transactional`-login по 401 стирал бы счётчик; успех сбрасывает счётчик). Параметры —
+  `app.security.auth-rate-limit.*` и `app.security.account-lockout.*`, см. §5/§7. Тесты:
+  `AuthRateLimiterTest` (2), `AccountLockoutServiceTest` (5), `AuthServiceTest` (делегирование,
+  11), e2e в `AuthFlowIntegrationTest`: блокировка до истечения + восстановление (установка
+  `locked_until` в прошлое) и 429 при исчерпании бакета (2); `./gradlew build` проходит
+  (66 тестов).
+- п. 13 §10 закрыт (2026-10-29, ветка `feature/auth`): claims access-токена — subject теперь
+  `user.getId()` (username изменяем — токен не должен ломаться при переименовании), добавлены
+  `preferred_username` (бывший subject) и `jti` (UUID на каждый токен, задел под блок-лист);
+  `email`/`roles` без изменений. `JwtService.extractUsername` → `extractUserId` (subject парсится
+  как long), `isTokenValid` принимает `CustomUserDetails` и сверяет id; фильтр грузит
+  пользователя по id — `CustomUserDetailsService.loadUserById` (`UserRepository.findById`).
+    Access-токены, выданные до изменения (subject = username), после выката невалидны
+    (NumberFormatException в фильтре → 401), клиент обновляет пару через `/refresh`;
+    refresh-токены не затронуты, при 15-минутном сроке access-токена окно перехода ничтожно.
+    Тесты: `JwtServiceTest` (5: round-trip id/claims, уникальность jti, legacy-subject →
+    NumberFormatException, истёкший/подделанный токен); e2e-пути фильтра по id покрыты
+    существующими сценариями `AuthFlowIntegrationTest` (запросы с access-токеном, logout);
+    `./gradlew build` проходит (68 тестов).
+- п. 14 §10 закрыт (2026-10-30, ветка `feature/auth`): иерархия исключений сведена к единственному
+  доменному `DomainException` + enum `ErrorCode` (имя константы — машиночитаемый код; поля:
+  HTTP-статус и сообщение по умолчанию, §6); пакет `exception/base/` и шесть предметных
+  исключений (`CredentialsAlreadyExists` и др.) удалены, все точки бросания переведены на коды.
+  `ErrorResponse` — `code` + `message` + `timestamp` (ISO-8601 `Instant` вместо epoch-millis);
+  `RestAuthenticationEntryPoint` в том же контракте. `DataIntegrityViolationException` в хендлере
+  различается по имени констрейнта (Hibernate `getConstraintName`, фолбэк — парсинг сообщения
+  драйвера): `uk_users_username`/`uk_users_email`/`uk_clients_kcr_code` → точный код 409, прочее —
+  `DATA_CONFLICT` (раньше любое нарушение отвечало «Username or email already taken»). Тесты:
+  новый `GlobalExceptionHandlerTest` (6: маппинг кода/статуса/тела, известные и неизвестные
+  констрейнты, отсутствие имени, фолбэк по сообщению драйвера), обновлены `AuthServiceTest`,
+  `ClientServiceTest`, `AuthRateLimiterTest` (ассерты на `ErrorCode`), e2e-контракт 401 в
+  `ClientApiIntegrationTest` (`"code":"AUTHENTICATION_REQUIRED"`, `timestamp` — ISO-строка);
+  `./gradlew build` проходит (74 теста).
+- п. 23 §10 закрыт (2026-10-30, ветка `feature/auth`): проверка access-токенов переведена
+  на resource server Spring Security (`spring-boot-starter-oauth2-resource-server`), рукописный
+  `JwtAuthenticationFilter` удалён. `NimbusJwtDecoder` (бин `SecurityConfig`, тот же ключ)
+  валидирует подпись и срок — один парсинг на запрос; алгоритм HS256 закреплён явно и в выдаче
+  (`JwtService.signWith(key, Jwts.SIG.HS256)`), и в декодере (раньше jjwt выбирал HSxxx по
+  длине ключа молча — теперь совпадение сторон гарантировано кодом). `JwtAuthenticationConverter`
+  (`security/`): subject → id → пользователь из `loadUserById` через Caffeine-кэш (TTL 30 с,
+  максимум 10 000) → `UserAuthenticationToken` с principal `CustomUserDetails` — контроллеры
+  и сервисы не изменились; БД выведена из горячего пути. Этим же закрыты п. 20 (загрузка
+  пользователя на каждый запрос; debug-лог причины 401 — в `RestAuthenticationEntryPoint`) и
+  подпункты 32(а)/(в) (токен удалённого пользователя → `InvalidBearerTokenException` → 401
+  вместо 500; парсинг токена один раз вместо 2–3) — из п. 32 остался только catch-all для
+  непредвиденных исключений. Entry point подключён и в `oauth2ResourceServer`: без этого
+  ошибки bearer-фильтра уходили в дефолтный sendError с пустым телом мимо единого контракта.
+  Мёртвые после замены методы `JwtService` (`extractUserId`/`isTokenValid`) удалены. Тесты:
+  `JwtAuthenticationConverterTest` (4: конвертация с ролями, legacy-subject, неизвестный
+  пользователь, кэш), `JwtServiceTest` переписан под выдачу-only (2), e2e «токен удалённого
+  пользователя → 401 с телом контракта» в `AuthFlowIntegrationTest`; `./gradlew build`
+  проходит (76 тестов).
+- п. 15 §10 закрыт (2026-10-31, ветка `feature/auth`): `BCryptPasswordEncoder` заменён на
+  `DelegatingPasswordEncoder` (`PasswordEncoderFactories.createDelegatingPasswordEncoder()`):
+  новые хеши записываются с префиксом алгоритма (`{bcrypt}$2a$…`), дефолт остаётся bcrypt —
+  само хеширование не менялось, это задел: будущая смена алгоритма (Argon2id и т.п.) — смена
+  дефолта кодировщика, без перекладки записанных данных. Существующие хеши без префикса
+  матчатся через `setDefaultPasswordEncoderForMatches` (fallback-BCrypt) — БД не тронута,
+  миграции не потребовались. Тесты: `SecurityConfigPasswordEncoderTest` (3: `{bcrypt}`-префикс
+  encode, матчинг хеша в новом и legacy-формате); `./gradlew build` проходит (79 тестов).
+- п. 16 §10 закрыт (2026-11-01, ветка `feature/auth`): нормализация email до валидации —
+  компакт-конструкторы record'ов `RegisterRequest` / `ClientCreateRequest` / `ClientUpdateRequest`
+  (email/contactEmail: `trim` + blank → null), правило — одно на все три DTO, в
+  `common/EmailNormalizer` (пакет `common/` — общий код без зависимостей от слоёв, предвестник
+  целевой структуры §11.5). Jackson собирает record через canonical
+  constructor — нормализация выполняется при десериализации, до `@Valid`: краевые пробелы больше
+  не дают 400 от `@Email`, `@Size(max=255)` проверяет тримнутую длину. Один источник правды:
+  `AuthService.normalizeEmail` удалён — сервисы получают уже нормализованное значение (уникальность
+  email и запись в БД идут по нему же). Семантика: blank email в register → NULL (как и раньше
+  сервисно), в PATCH клиентов blank contactEmail = «не менять» (как null; очистить email пустой
+  строкой через PATCH теперь нельзя — поле не отличает blank от отсутствия, опциональность
+  очистки — вопрос будущего API). Тесты: `EmailNormalizationTest` (3, конструкторы всех трёх DTO),
+  e2e в `AuthFlowIntegrationTest` (register с пробелами → 201 и тримнутый email в БД, дубль по
+  нормализованному значению → 409, blank → NULL) и `ClientApiIntegrationTest` (POST с пробелами
+  вокруг contactEmail → 201 и тримнутое значение, PATCH blank → «не менять»); `./gradlew build`
+  проходит (84 теста).
+- п. 27 §10 закрыт (2026-11-02, ветка `feature/auth`): bootstrap первого администратора —
+  `AdminBootstrap` (`bootstrap/`, `ApplicationRunner`). Условный режим на каждом старте: если
+  пользователей с ролью ADMIN нет (`existsByRole(ADMIN)` — новый метод `UserRepository`),
+  создаётся учётная запись из `ADMIN_USERNAME`/`ADMIN_PASSWORD` (пароль — тем же
+  `PasswordEncoder`, `{bcrypt}`-префикс; роль ADMIN, email NULL); есть хоть один ADMIN — no-op
+  (идемпотентно). Учётные данные пусты: prod — `IllegalStateException` при старте (fail-fast:
+  чистый деплой без возможности управления не должен подниматься), dev — WARN и продолжение;
+  занятый username — fail-fast в обоих профилях (ошибка конфигурации, текст подсказывает
+  выбрать другой `ADMIN_USERNAME`). Для эксплуатации — режим `--create-admin` (тот же раннер,
+  опция `ApplicationArguments`): создаёт учётную запись из тех же переменных независимо от
+  существующих ADMIN (добавление администраторов) и завершает приложение
+  (`SpringApplication.exit`; при работающем инстансе запускать с `--server.port=0`, см. §8).
+  Свойства `app.admin.username`/`app.admin.password` (общая часть `application.yaml`,
+  `${ADMIN_USERNAME:}`/`${ADMIN_PASSWORD:}` — в dev через `.env`; семантика применения
+  в раннере, поэтому prod падает только когда bootstrap действительно нужен), см. §5/§7.
+  Проверено на dev-БД: создание с `{bcrypt}`-хешем, завершение после команды, повторный запуск
+  → fail-fast «already exists». Тесты: `AdminBootstrapTest` (7: no-op при существующем ADMIN,
+  создание с encoded-паролем, dev-skip и prod fail-fast без учётных данных, занятый username,
+  forced-режим с существующими ADMIN и без учётных данных); `./gradlew build` проходит
+  (91 тест).
 
-Выявленные проблемы и требуемые изменения собраны в §10 (архитектурное ревью от 2026-10-24);
-ранее перечислявшиеся здесь «известные особенности» включены туда.
+- пп. 28–32 §10 закрыты (2026-11-03, ветка `feature/auth`) — вся группа P1 «до первого
+  продакшена»:
+  - п. 28: пагинация валидируется constraint-аннотациями на параметрах `ClientController`
+    (`@Min(0) page`, `@Min(1) @Max(PageLimits.MAX_PAGE_SIZE) size`; встроенная method-validation
+    Boot — без `@Validated`), нарушение → 400 `VALIDATION_FAILED` (`HandlerMethodValidationException`
+    в `GlobalExceptionHandler` со сводкой по параметрам). Константа `PageLimits.MAX_PAGE_SIZE`
+    (100) — в `common/`, под эндпоинты истории §11.4.
+  - п. 29: доменные правила формата — в переиспользуемых constraint-аннотациях
+    `common/validation/` (`@Inn` — 10 или 12 цифр, `@Kpp` — 9, `@KcrCode` — канонический
+    `^[A-Z]{3}\d{5}$`); паттерны — публичные константы валидаторов, парсер импорта
+    (`ClientExcelParser`, `ExcelCells.matchesKcrCode` — регистронезависимо, сырые ячейки)
+    использует те же правила: источник данных заменяем, правило одно. Нормализация кода KCR
+    при записи — `common/KcrCodeNormalizer` (trim + верхний регистр) в компакт-конструкторе
+    `ClientCreateRequest`, `@KcrCode` проверяет канонический вид. Ручной POST/PATCH теперь
+    принимает 10-значный ИНН (раньше только 12 — расхождение с парсером устранено).
+  - п. 30: регистронезависимая уникальность username/email — функциональные unique-индексы
+    `idx_users_username_lower`/`idx_users_email_lower` по `lower(...)` (миграция
+    `V7__users_case_insensitive_identity.sql`; выбор против `citext` — без
+    `CREATE EXTENSION`-привилегий). Запись и поиск — в нижнем регистре
+    (`common/UserIdentityNormalizer`): компакт-конструкторы `RegisterRequest`/`LoginRequest`
+    (username и email) и `AdminBootstrap` (config-значение минует DTO); email-нормализация
+    `contactEmail` клиентов не менялась (только trim). `Admin`/`admin` — один аккаунт,
+    вход не чувствителен к регистру. Маппинг 409 дополнен именами новых индексов
+    (`uk_*` оставлены для совместимости истории миграций).
+  - п. 31: инкремент счётчика блокировки — атомарный bulk-UPDATE
+    `UserRepository.registerFailedLogin` (`failedAttempts + 1`, `lockedUntil` — `case` при
+    достижении порога, параметры конфигурации передаются вызывающим; read-modify-write над
+    сущностью терял инкременты при параллельных неудачных попытках), сброс — условный
+    bulk-UPDATE `resetFailedLogins` (чистый аккаунт не затрагивается). `REQUIRES_NEW`
+    у `registerFailedLogin` сохранён.
+  - п. 32 (остаток — catch-all): `@ExceptionHandler(Exception.class)` → 500
+    `INTERNAL_ERROR` в едином контракте, стек — в лог, ответ нейтрален.
+    `AccessDeniedException` перебрасывается отдельным хендлером в security-фильтр —
+    403 `@PreAuthorize` остался в `ExceptionTranslationFilter`, не превращаясь в 500.
+  Тесты: `GlobalExceptionHandlerTest` (10: новые имена индексов, catch-all, rethrow
+  AccessDenied), `AccountLockoutServiceTest` переписан под bulk-методы (3),
+  `ClientRequestValidationTest` (7: констрейнты и нормализация DTO), e2e в
+  `AuthFlowIntegrationTest` (регистронезависимость username/email) и `ClientApiIntegrationTest`
+  (`page=-1`/`size=101` → 400, `size=100` → 200, ИНН 10 цифр POST/PATCH, код KCR
+  нормализуется/отвергается); `./gradlew build` проходит (101 тест).
+
+Выявленные проблемы и требуемые изменения собраны в §10 (архитектурные ревью 2026-10-24
+и 2026-10-29); ранее перечислявшиеся здесь «известные особенности» включены туда.
 
 ---
 
 ## 10. Требуемые изменения (архитектурное ревью 2026-10-24)
 
-Раздел фиксирует проблемы, выявленные ревью от 2026-10-24, и целевые решения. Пункты
-пронумерованы сквозной нумерацией, порядок внутри группы — порядок внедрения. Закрывая пункт,
+Раздел фиксирует проблемы, выявленные ревью от 2026-10-24 (пп. 14–26) и повторным ревью
+2026-10-29 по фактическому коду после закрытия пп. 1–13 и 17 (пп. 27–37), и целевые решения.
+Пункты пронумерованы сквозной нумерацией, порядок внутри группы — порядок внедрения. Закрывая пункт,
 обнови затронутые разделы (§1–§9) в том же изменении и удали закрытый пункт отсюда;
 нумерация оставшихся пунктов не сдвигается — номера используются как ссылки из других разделов.
 
 ### P1 — до первого продакшена
 
-8. **Защитить refresh-флоу от гонки.** Ротация — уже один метод `rotate` (SELECT по хешу с
-   JOIN FETCH, см. §5), но без блокировки: при двух конкурентных `/refresh` с одним токеном
-   либо выдаются оба новых токена, либо второй запрос выглядит как reuse и отзывает семейство
-   вместе со свежим токеном первого. Добавить `@Lock(LockModeType.PESSIMISTIC_WRITE)`
-   (SELECT … FOR UPDATE) на чтение токена в одной транзакции с пометкой ротации и вставкой
-   нового токена.
-9. **Очистка просроченных токенов + индекс.** `@EnableScheduling` + `@Scheduled`-job
-   (`deleteByExpiryDateBefore(now)`, раз в сутки) — сейчас таблица растёт бесконечно. Индекс на
-   `refresh_tokens.user_id` (`@Table(indexes = @Index(...))` + миграция): Postgres не создаёт
-   индексы на FK автоматически, `deleteByUser` без индекса уходит в seq scan.
-10. **Logout-эндпоинт** (`POST /api/v1/auth/logout`): удалять refresh-токены текущего пользователя
-    (`deleteByToken`/`deleteByUser` в `RefreshTokenRepository` уже объявлены, но не задействованы).
-12. **Антибрутфорс.** Rate limiting на `/api/v1/auth/login|register` (Bucket4j, лимит на пару
-    username+IP) + блокировка аккаунта после N неудачных попыток (`failed_attempts`/`locked_until`
-    на `User`, учитывать при загрузке в `CustomUserDetailsService`).
-13. **Claims access-токена.** Subject — `user.getId()` вместо username (username изменяем), плюс
-    `preferred_username` и `jti` (`JwtService.generateAccessToken`).
-14. **Упростить иерархию исключений и `ErrorResponse`.** `BasicException` — пустой уровень без
-    полей; `CredentialsAlreadyExistsException extends BadRequestException` возвращает 409 (ломает
-    семантику is-a); отдельный класс на каждый статус избыточен. Заменить на один доменный класс
-    исключения + enum `ErrorCode { код, HttpStatus, сообщение }`. В `ErrorResponse`: `timestamp` →
-    ISO-8601 (`Instant` вместо epoch-millis), добавить машиночитаемый `code` для фронтенда.
-    Хендлер `DataIntegrityViolationException` различать нарушения по имени констрейнта — сейчас
-    любое нарушение целостности отвечает «Username or email already taken».
-15. **`DelegatingPasswordEncoder`** вместо голого `BCryptPasswordEncoder` (`{bcrypt}`-префикс
-    в хеше) — задел на будущую миграцию на Argon2id без перекладки данных.
-16. **Нормализация email до валидации.** `@Email` отклоняет адрес с краевыми пробелами, хотя
-    сервис их тримит; тримить до валидации (собственный constraint-валидатор либо нормализация
-    на входе контроллера).
+Закрыты полностью (пп. 28–32, 2026-11-03 — см. §9); группа удалена из плана.
 
 ### P2 — качество и готовность к нагрузке
 
@@ -450,28 +759,49 @@ RuntimeException
     `AuthFlowIntegrationTest` заменить парсинг JSON регулярками на JsonPath. Добавить слайсы
     `@WebMvcTest` (контроллеры) и `@DataJpaTest` (репозитории), AssertJ для ассертов, JaCoCo-порог
     на изменённый код.
-19. **Наблюдаемость.** Логгеров в коде нет: добавить SLF4J в сервисы и `JwtAuthenticationFilter`,
-    аудит security-событий (login success/fail с username и IP). Подключить
+19. **Наблюдаемость.** Логгеров в коде почти нет: добавить SLF4J в сервисы, аудит
+    security-событий (login success/fail с username и IP). Подключить
     `spring-boot-starter-actuator` + Micrometer (экспорт в Prometheus); далее — JSON-логи
     (logstash-logback-encoder) и correlation-id.
-20. **`JwtAuthenticationFilter` и hot path.** `loadUserByUsername` выполняется на каждый запрос
-    (обращение к БД в самом горячем пути): довериться claims из токена (схема и так stateless)
-    либо кэш Caffeine с коротким TTL. В `catch` добавить debug-лог причины невалидного токена
-    вместо молчаливого проглатывания.
 21. **Сборка/CI/рантайм.** Spotless (palantir-java-format) + Error Prone (+ NullAway);
     GitHub Actions на PR (build + тесты); Dependabot/Renovate для зависимостей; переход на
     Java 21 LTS и `spring.threads.virtual.enabled=true` (виртуальные потоки для IO-bound
     нагрузки).
+33. **Bulk-удаления и батчинг вставок.** Производные `deleteBy…` Spring Data выполняют SELECT
+    и построчные DELETE: logout и reuse-detection отзывают все токены пользователя по одному,
+    ночная чистка сначала грузит в память все истёкшие строки. Перевести на
+    `@Modifying @Query("delete from RefreshToken t where …")` (+ `clearAutomatically = true`),
+    чистку — порциями (цикл с LIMIT), не одной длинной транзакцией; заодно удалить неиспользуемый
+    `RefreshTokenRepository.deleteByTokenHash`. Для предстоящего upsert-импорта (§11.8, ~6k
+    клиентов и ~12k срезов за файл) заранее включить батчинг: `hibernate.jdbc.batch_size` +
+    `order_inserts`/`order_updates` + `reWriteBatchedInserts` драйвера Postgres; сам upsert —
+    `INSERT … ON CONFLICT (kcr_code) DO UPDATE` (native) либо пакетный `JdbcTemplate.batchUpdate`.
+34. **Индексы под поиск клиентов.** Поиск `lower(kcr_code) LIKE '%q%' OR lower(inn) LIKE '%q%'`:
+    ведущий `%` и `lower()` не используют индексы (уникальный индекс `kcr_code` неприменим, по
+    `inn` индекса нет) — при росте таблицы это первый seq scan в API. Код KCR и ИНН —
+    идентификаторы: искать по префиксу/точно с функциональными индексами
+    `(lower(kcr_code)) varchar_pattern_ops` и `(inn) varchar_pattern_ops`; для поиска по
+    подстроке — расширение `pg_trgm` + GIN-индекс `gin_trgm_ops`. Одновременно read-методы
+    сервисов пометить `@Transactional(readOnly = true)`.
+35. **Антибрутфорс: покрытие и доверие X-Forwarded-For.** Бакет на пару username+IP не
+    сдерживает массовую регистрацию с одного IP (каждый новый username — новый бакет), а при
+    прямом доступе без доверенного прокси XFF подделывается и IP-часть ключа фиктивна
+    (комментарий в `AuthController` это признаёт). Добавить второй бакет IP-only на `register`
+    (ключ — только IP, тот же Bucket4j), закрыть им же `/refresh` (перебор UUID нереален, но
+    запрос дешёвый и безлимитный), доверие к XFF — явным конфигурационным флагом (по умолчанию
+    выключено, свойство вида `app.security.trust-forwarded-for`); параметры — в конфигурацию по
+    образцу п. 25. При появлении второго инстанса — общий store (Redis), как отмечено в §5.
+36. **Отзыв семейства refresh-токенов, а не всех токенов пользователя.** Повторное
+    предъявление одного украденного ротированного токена сейчас отзывает все refresh-токены
+    пользователя — страдают все устройства, хотя скомпрометировано одно семейство выдачи.
+    Завести колонку `family_id` (корень — выдача в login; токены ротации наследуют семейство)
+    с индексом; при reuse — `deleteByFamilyId` вместо `deleteByUser`. Атомарность не меняется:
+    FOR UPDATE по-прежнему на строке предъявленного токена, удаление семейства — индексное.
 
 ### P3 — эволюция
 
 22. **OpenAPI-контракт.** springdoc-openapi для описания `/api/v1/**` и генерации TS-клиента
     для `client/` (префикс `/api/v1/**` введён 2026-10-27 вместе с первым предметным эндпоинтом).
-23. **oauth2-resource-server вместо рукописного фильтра.**
-    `spring-boot-starter-oauth2-resource-server` даёт валидацию подписи, `iss`/`aud`/`exp` и
-    интеграцию со Spring Security из коробки; jjwt остаётся для выдачи токенов. При появлении
-    второго сервиса — асимметричная подпись (RS256/ES256) + JWKS-эндпоинт (ротация ключей без
-    даунтайма; HMAC-ключ сейчас не ротируется).
 24. **Сущности.** `Long id` вместо примитива `long` (новые сущности заводятся сразу на `Long`,
     например `Client`; остались `User` и `RefreshToken`); `equals`/`hashCode` по id; аудит-поля
     (`@EnableJpaAuditing`, `@CreatedDate`/`@LastModifiedDate`); `@Version` при первом сценарии
@@ -481,6 +811,11 @@ RuntimeException
 26. **Маппинг и структура пакетов.** MapStruct (compile-time, без рефлексии) для entity ↔ DTO,
     когда маппинг станет объёмным; при появлении второго домена — переход на package-by-feature
     (`auth/`, `persons/`, `common/`). Текущая слоистая структура для одного домена корректна.
+37. **Эксплуатационный минимум рантайма.** Явная настройка HikariCP под инстанс Postgres
+    (`maximum-pool-size`, `connection-timeout`, `leak-detection-threshold`), graceful shutdown
+    (`server.shutdown=graceful` + `spring.lifecycle.timeout-per-shutdown-phase`) — деплой без
+    обрыва обрабатываемых запросов, cron джобов — в явной зоне (`@Scheduled(zone = "UTC")`;
+    сейчас зона сервера). Дополняет п. 19 (actuator/метрики).
 
 ---
 
