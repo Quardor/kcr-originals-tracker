@@ -366,9 +366,11 @@ HTTP-статус и сообщение по умолчанию, имя конс
 | `CLIENT_ALREADY_EXISTS` | 409 | POST /clients: exists-проверка и гонка в БД (констрейнт) |
 | `BLANK_ORGANIZATION_NAME` | 400 | PATCH /clients (пустое название) |
 | `INVALID_SORT_FIELD` / `INVALID_SORT_DIRECTION` | 400 | GET /clients (whitelist сортировки) |
+| `IMPORT_FILE_REQUIRED` | 400 | импорт Excel: часть `file` отсутствует или пуста (§11.4) |
+| `IMPORT_FILE_UNREADABLE` | 400 | импорт Excel: файл не разбирается как книга Excel (недоверенный ввод; исключение парсера проглатывается — это клиентская ошибка, не внутренняя) |
 | `VALIDATION_FAILED` | 400 | `MethodArgumentNotValidException` (Bean Validation DTO) и `HandlerMethodValidationException` (встроенная method-validation параметров контроллера — пагинация, п. 28 §10) |
 | `MALFORMED_REQUEST_BODY` | 400 | `HttpMessageNotReadableException` (невалидный JSON) |
-| `INVALID_REQUEST_PARAMETER` | 400 | `MethodArgumentTypeMismatchException` (query/path-параметр) |
+| `INVALID_REQUEST_PARAMETER` | 400 | `MethodArgumentTypeMismatchException` (query/path-параметр) и `MissingServletRequestParameterException` (отсутствующий обязательный параметр; иначе попадал бы в catch-all п. 32 §10 как 500) |
 | `RESOURCE_NOT_FOUND` | 404 | `NoResourceFoundException` (несуществующий маршрут) |
 | `DATA_CONFLICT` | 409 | нарушение целостности БД по неизвестному констрейнту |
 | `SHA256_UNAVAILABLE` | 500 | JRE без SHA-256 (недостижимо на стандартном JRE) |

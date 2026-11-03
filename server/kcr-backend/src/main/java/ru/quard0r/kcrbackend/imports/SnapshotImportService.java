@@ -4,7 +4,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
-import ru.quard0r.kcrbackend.exception.base.BadRequestException;
+import ru.quard0r.kcrbackend.exception.DomainException;
+import ru.quard0r.kcrbackend.exception.ErrorCode;
 import ru.quard0r.kcrbackend.imports.dto.SnapshotCreateCommand;
 import ru.quard0r.kcrbackend.imports.dto.SnapshotImportPreview;
 import ru.quard0r.kcrbackend.imports.dto.SnapshotImportReport;
@@ -85,12 +86,12 @@ public class SnapshotImportService {
 
     private ParseResult<SnapshotCreateCommand> parse(MultipartFile file, LocalDate snapshotDate) {
         if (file == null || file.isEmpty()) {
-            throw new BadRequestException("Import file is required");
+            throw new DomainException(ErrorCode.IMPORT_FILE_REQUIRED);
         }
         try {
             return parser.parse(file.getInputStream(), snapshotDate);
         } catch (IOException | RuntimeException e) {
-            throw new BadRequestException("Unable to read the file as an Excel workbook");
+            throw new DomainException(ErrorCode.IMPORT_FILE_UNREADABLE);
         }
     }
 

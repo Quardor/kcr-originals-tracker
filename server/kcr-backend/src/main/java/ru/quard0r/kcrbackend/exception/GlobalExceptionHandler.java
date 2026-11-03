@@ -9,6 +9,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
@@ -76,6 +77,14 @@ public class GlobalExceptionHandler {
     ResponseEntity<ErrorResponse> exceptionHandler(MethodArgumentTypeMismatchException e) {
         return respond(ErrorCode.INVALID_REQUEST_PARAMETER,
                 new ErrorResponse(ErrorCode.INVALID_REQUEST_PARAMETER));
+    }
+
+    // Без хендлера отсутствующий обязательный параметр уходил бы в catch-all (п. 32 §10)
+    // и превращался бы в 500 вместо клиентской 400.
+    @ExceptionHandler
+    ResponseEntity<ErrorResponse> exceptionHandler(MissingServletRequestParameterException e) {
+        return respond(ErrorCode.INVALID_REQUEST_PARAMETER, new ErrorResponse(ErrorCode.INVALID_REQUEST_PARAMETER,
+                "Missing request parameter: " + e.getParameterName()));
     }
 
     @ExceptionHandler

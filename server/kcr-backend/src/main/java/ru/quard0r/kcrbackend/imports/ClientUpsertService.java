@@ -4,7 +4,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
-import ru.quard0r.kcrbackend.exception.base.BadRequestException;
+import ru.quard0r.kcrbackend.exception.DomainException;
+import ru.quard0r.kcrbackend.exception.ErrorCode;
 import ru.quard0r.kcrbackend.imports.dto.ClientImportPreview;
 import ru.quard0r.kcrbackend.imports.dto.ClientImportReport;
 import ru.quard0r.kcrbackend.imports.dto.ClientImportRow;
@@ -84,12 +85,12 @@ public class ClientUpsertService {
 
     private ParseResult<ClientUpsertCommand> parse(MultipartFile file) {
         if (file == null || file.isEmpty()) {
-            throw new BadRequestException("Import file is required");
+            throw new DomainException(ErrorCode.IMPORT_FILE_REQUIRED);
         }
         try {
             return parser.parse(file.getInputStream());
         } catch (IOException | RuntimeException e) {
-            throw new BadRequestException("Unable to read the file as an Excel workbook");
+            throw new DomainException(ErrorCode.IMPORT_FILE_UNREADABLE);
         }
     }
 

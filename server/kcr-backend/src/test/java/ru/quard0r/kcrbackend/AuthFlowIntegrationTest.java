@@ -361,16 +361,16 @@ class AuthFlowIntegrationTest {
         mockMvc.perform(post("/api/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"caseb-" + suffix + "\",\"password\":\"" + password + "\","
-                                + "\"email\":\"Mixed.Case@Mail.COM\"}"))
+                                + "\"email\":\"Mixed.Case-" + suffix + "@Mail.COM\"}"))
                 .andExpect(status().isCreated());
 
-        assertEquals("mixed.case@mail.com", jdbcTemplate.queryForObject(
+        assertEquals("mixed.case-" + suffix + "@mail.com", jdbcTemplate.queryForObject(
                 "SELECT email FROM users WHERE username = ?", String.class, "caseb-" + suffix));
 
         mockMvc.perform(post("/api/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"casec-" + suffix + "\",\"password\":\"" + password + "\","
-                                + "\"email\":\"mixed.case@mail.com\"}"))
+                                + "\"email\":\"mixed.case-" + suffix + "@mail.com\"}"))
                 .andExpect(status().isConflict());
     }
 

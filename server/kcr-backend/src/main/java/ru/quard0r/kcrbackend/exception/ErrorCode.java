@@ -25,6 +25,10 @@ public enum ErrorCode {
     INVALID_SORT_FIELD(HttpStatus.BAD_REQUEST, "Invalid sort field"),
     INVALID_SORT_DIRECTION(HttpStatus.BAD_REQUEST, "Invalid sort direction"),
 
+    // импорт Excel (§11.4)
+    IMPORT_FILE_REQUIRED(HttpStatus.BAD_REQUEST, "Import file is required"),
+    IMPORT_FILE_UNREADABLE(HttpStatus.BAD_REQUEST, "Unable to read the file as an Excel workbook"),
+
     // запрос не прошёл разбор/валидацию (ошибки фреймворка, GlobalExceptionHandler)
     VALIDATION_FAILED(HttpStatus.BAD_REQUEST, "Validation failed"),
     MALFORMED_REQUEST_BODY(HttpStatus.BAD_REQUEST, "Malformed request body"),
