@@ -14,19 +14,17 @@ import ru.quard0r.kcrbackend.repository.UserRepository;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 
 @ExtendWith(MockitoExtension.class)
 class AccountLockoutServiceTest {
+
+    private static final int MAX_FAILED_ATTEMPTS = 5;
 
     @Mock
     private UserRepository userRepository;
@@ -36,7 +34,7 @@ class AccountLockoutServiceTest {
 
     @BeforeEach
     void setUp() {
-        ReflectionTestUtils.setField(accountLockoutService, "maxFailedAttempts", 5);
+        ReflectionTestUtils.setField(accountLockoutService, "maxFailedAttempts", MAX_FAILED_ATTEMPTS);
         ReflectionTestUtils.setField(accountLockoutService, "lockDuration", Duration.ofMinutes(15));
     }
 
@@ -50,60 +48,38 @@ class AccountLockoutServiceTest {
     }
 
     @Test
-    void registerFailedLoginIncrementsCounterWithoutLocking() {
-        when(userRepository.findByUsername("user")).thenReturn(Optional.of(user(0)));
-
+    void registerFailedLoginDelegatesToAtomicBulkUpdateWithLockDeadline() {
+        // Решение о блокировке живёт в SQL (case при достижении порога); сервис передаёт
+        // порог и срок и больше не делает read-modify-write над сущностью.
         accountLockoutService.registerFailedLogin("user");
 
-        ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
-        verify(userRepository).save(captor.capture());
-        assertEquals(1, captor.getValue().getFailedAttempts());
-        assertNull(captor.getValue().getLockedUntil());
+        ArgumentCaptor<Instant> deadline = ArgumentCaptor.forClass(Instant.class);
+        verify(userRepository).registerFailedLogin(eq("user"), eq(MAX_FAILED_ATTEMPTS), deadline.capture());
+        Instant expected = Instant.now().plus(Duration.ofMinutes(15));
+        assertTrue(!deadline.getValue().isBefore(expected.minusSeconds(5))
+                && !deadline.getValue().isAfter(expected.plusSeconds(5)));
+        verifyNoMoreInteractions(userRepository);
     }
 
     @Test
-    void registerFailedLoginLocksAccountAtThreshold() {
-        when(userRepository.findByUsername("user")).thenReturn(Optional.of(user(4)));
-
-        accountLockoutService.registerFailedLogin("user");
-
-        ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
-        verify(userRepository).save(captor.capture());
-        assertEquals(5, captor.getValue().getFailedAttempts());
-        assertNotNull(captor.getValue().getLockedUntil());
-        assertTrue(captor.getValue().getLockedUntil().isAfter(Instant.now()));
-    }
-
-    @Test
-    void registerFailedLoginIgnoresUnknownUsername() {
-        when(userRepository.findByUsername("ghost")).thenReturn(Optional.empty());
-
+    void registerFailedLoginPassesUsernameVerbatim() {
+        // Неизвестный username: bulk-UPDATE не находит строку — no-op на уровне SQL.
         accountLockoutService.registerFailedLogin("ghost");
 
-        verify(userRepository, never()).save(any());
+        verify(userRepository).registerFailedLogin(eq("ghost"), eq(MAX_FAILED_ATTEMPTS),
+                ArgumentCaptor.forClass(Instant.class).capture());
+        verifyNoMoreInteractions(userRepository);
     }
 
     @Test
-    void resetFailedLoginsClearsCounterAndLock() {
-        User user = User.builder()
-                .username("user")
-                .password("$2a$10$hashedpassword")
-                .role(Role.OPERATOR)
-                .failedAttempts(2)
-                .lockedUntil(Instant.now().plusSeconds(60))
-                .build();
+    void resetFailedLoginsDelegatesConditionalBulkUpdateById() {
+        User user = user(2);
 
         accountLockoutService.resetFailedLogins(user);
 
-        assertEquals(0, user.getFailedAttempts());
-        assertNull(user.getLockedUntil());
-        verify(userRepository).save(user);
-    }
-
-    @Test
-    void resetFailedLoginsSkipsAlreadyCleanAccount() {
-        accountLockoutService.resetFailedLogins(user(0));
-
-        verify(userRepository, never()).save(any());
+        verify(userRepository).resetFailedLogins(user.getId());
+        // Сущность не мутируется и не сохраняется: сброс выполняется одним UPDATE.
+        assertEquals(2, user.getFailedAttempts());
+        verifyNoMoreInteractions(userRepository);
     }
 }

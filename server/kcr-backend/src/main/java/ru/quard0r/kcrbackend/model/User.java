@@ -17,10 +17,10 @@ public class User {
     @Column(nullable = false)
     private String password;
 
-    @Column(nullable = false, unique = true)
+    @Column(nullable = false)
     private String username;
 
-    @Column(unique = true)
+    @Column
     private String email;
 
     @Enumerated(EnumType.STRING)

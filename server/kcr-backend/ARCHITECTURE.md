@@ -47,24 +47,34 @@ ru.quard0r.kcrbackend
 ├── KcrBackendApplication   — точка входа (@SpringBootApplication)
 ├── bootstrap/              — инициализация при старте (AdminBootstrap — bootstrap первого
 │                             администратора и команда --create-admin, см. §5)
-├── common/                 — общий код без зависимостей от слоёв (EmailNormalizer —
-│                             единая нормализация email-полей запросов, §5)
+├── common/                 — общий код без зависимостей от слоёв: EmailNormalizer (email-поля
+│                             запросов, §5), KcrCodeNormalizer (канонический вид кода KCR, §4),
+│                             UserIdentityNormalizer (username/email — нижний регистр, §5),
+│                             PageLimits (максимальный размер страницы, §3/§11.4);
+│                             validation/ — доменные constraint-аннотации @Inn / @Kpp / @KcrCode
+│                             с валидаторами — единый источник правил формата для DTO и
+│                             Excel-парсеров (п. 29 §10)
 ├── config/                 — конфигурация Spring (SecurityConfig: security-цепочка, CORS, бины)
 ├── controller/             — REST-контроллеры (AuthController: /api/v1/auth/**,
-│                             ClientController: /api/v1/clients/**)
+│                             ClientController: /api/v1/clients/**, пагинация валидируется
+│                             constraint-аннотациями через PageLimits, п. 28 §10)
 ├── dto/
 │   ├── request/            — входные DTO (records: LoginRequest, RegisterRequest, RefreshRequest,
 │   │                         ClientCreateRequest, ClientUpdateRequest — PATCH-семантика «null = не менять»;
-│   │                         email-поля нормализуются в компакт-конструкторе через
-│   │                         common/EmailNormalizer — до Bean Validation, см. §5)
+│   │                         нормализация в компакт-конструкторах до Bean Validation: email-поля
+│   │                         через common/EmailNormalizer, username/email — через
+│   │                         common/UserIdentityNormalizer, kcrCode — через
+│   │                         common/KcrCodeNormalizer, см. §5/§4)
 │   └── response/           — исходящие DTO (records + @Builder: AuthResponse, ErrorResponse,
 │                             ClientResponse, SnapshotResponse, дженерик PageResponse)
 ├── exception/               — контракт ошибок (§6): ErrorCode — enum «код, HTTP-статус,
 │                             сообщение», DomainException — единственное доменное исключение,
-│                             GlobalExceptionHandler — маппинг в ErrorResponse
+│                             GlobalExceptionHandler — маппинг в ErrorResponse, включая
+│                             method-validation параметров и catch-all 500 (п. 32 §10)
 ├── imports/                — Excel-импорт (feature-пакет §11.5; `import` — ключевое слово Java):
 │                             ClientExcelParser / SnapshotExcelParser — тонкие адаптеры реальных
-│                             выгрузок → командные DTO (§11.6), формат-валидация внутри; ExcelCells —
+│                             выгрузок → командные DTO (§11.6); форматы ИНН/КПП/кода KCR
+│                             проверяются общими правилами common/validation; ExcelCells —
 │                             чтение ячеек, нормализация заголовков, поиск колонки кода KCR;
 │                             ParseResult/ParseIssue; dto/ (ClientUpsertCommand, SnapshotCreateCommand).
 │                             UpsertService и REST-эндпоинты — план (§11.8)
@@ -104,11 +114,11 @@ controller → service → repository → model
 | Поле | Тип | Ограничения |
 |---|---|---|
 | id | long | PK, IDENTITY |
-| username | String | not null, unique |
+| username | String | not null; хранится в нижнем регистре (нормализация `common/UserIdentityNormalizer` при записи и поиске), уникальность регистронезависима — функциональный unique-индекс `idx_users_username_lower` по `lower(username)` (`V7__users_case_insensitive_identity.sql`, п. 30 §10) |
 | password | String | not null (хеш пароля, формат `{bcrypt}$2a$…`, см. §5) |
-| email | String | unique, опционален |
+| email | String | опционален; как username — нижний регистр + функциональный unique-индекс `idx_users_email_lower` (NULL не конфликтуют) |
 | role | Role | not null, `@Enumerated(EnumType.STRING)` |
-| failedAttempts | int | колонка `failed_attempts`, not null, default 0 — счётчик неудачных попыток входа (антибрутфорс, §5; `V6__user_account_lockout.sql`) |
+| failedAttempts | int | колонка `failed_attempts`, not null, default 0 — счётчик неудачных попыток входа (антибрутфорс, §5; `V6__user_account_lockout.sql`); инкремент/сброс — атомарные bulk-UPDATE (п. 31 §10) |
 | lockedUntil | Instant | колонка `locked_until`, опционален — до этого момента вход запрещён (блокировка после N неудач); null/прошлое — не заблокирован |
 
 ### Role (enum)
@@ -140,9 +150,9 @@ Postgres не создаёт индексы на FK-колонки автома�
 | Поле | Тип | Ограничения |
 |---|---|---|
 | id | Long | PK, IDENTITY |
-| kcrCode | String | not null, unique — основной идентификатор клиента |
-| inn | String | not null, varchar(12) |
-| kpp | String | varchar(9), опционален |
+| kcrCode | String | not null, unique — основной идентификатор клиента; канонический вид `^[A-Z]{3}\d{5}$` — при записи нормализуется к верхнему регистру (`@KcrCode` + `common/KcrCodeNormalizer`, парсер импорта — то же правило), уникальность обычным unique (citext не нужен, пп. 29–30 §10) |
+| inn | String | not null, varchar(12) — 10 или 12 цифр (`@Inn`: единое с парсером импорта правило, юрлицо с 10-значным ИНН создаётся и вручную, п. 29 §10) |
+| kpp | String | varchar(9), опционален — 9 цифр (`@Kpp`) |
 | organizationName | String | not null |
 | internalId | String | опционален — внутренний ID / лицевой счёт из выгрузки |
 | clientType | ClientType | enum, опционален; в БД varchar + CHECK по списку значений (как `role` у `users`) |
@@ -236,13 +246,17 @@ snapshot_date)` покрывает выборку динамики по клие
 
 Сценарии (реализованы в `AuthService`; `register`/`login`/`logout` — `@Transactional`, `refresh` — нет,
 см. ниже):
-- `register` — проверка уникальности username и email (нормализация email — `trim` + blank → null —
-  в компакт-конструкторе `RegisterRequest` до Bean Validation: `@Email` видит уже тримнутое
-  значение, п. 16 §10 закрыт 2026-11-01; то же — `contactEmail` в `ClientCreateRequest`/
-  `ClientUpdateRequest`, blank = «данных нет»/«не менять») →
-  сохранение (BCrypt, роль OPERATOR) → выдача пары токенов. Конкурентный конфликт уникальности в БД
-  ловится `GlobalExceptionHandler` как 409 — с точным кодом по имени констрейнта (§6).
-- `login` — через `authenticationManager.authenticate(...)` (бин в `SecurityConfig`;
+- `register` — проверка уникальности username и email (нормализация — в компакт-конструкторе
+  `RegisterRequest` до Bean Validation: email — `trim` + blank → null (п. 16 §10, то же —
+  `contactEmail` в `ClientCreateRequest`/`ClientUpdateRequest`, blank = «данных нет»/«не менять»);
+  username и email — к нижнему регистру через `common/UserIdentityNormalizer` (п. 30 §10):
+  в БД пишутся уже приведённые значения, уникальность — функциональные unique-индексы по
+  `lower(...)`), → сохранение (BCrypt, роль OPERATOR) → выдача пары токенов. Конкурентный
+  конфликт уникальности в БД ловится `GlobalExceptionHandler` как 409 — с точным кодом по имени
+  констрейнта/индекса (§6).
+- `login` — username нормализуется к нижнему регистру в `LoginRequest` (совпадает с записями в
+  БД: вход не чувствителен к регистру, `Admin`/`admin` — один аккаунт) — далее через
+  `authenticationManager.authenticate(...)` (бин в `SecurityConfig`;
   `DaoAuthenticationProvider` собирается из бинов `CustomUserDetailsService` + `PasswordEncoder`):
   любой `AuthenticationException` → единый 401 "Invalid credentials". Тайминг-атака на
   перечисление usernames закрыта самим провайдером: при `UsernameNotFoundException` он выполняет
@@ -273,7 +287,8 @@ snapshot_date)` покрывает выборку динамики по клие
 
 1. **Rate limiting `POST /api/v1/auth/login|register`.** `AuthRateLimiter` (`security/`) вызывается
    из `AuthController` до сервиса: token bucket (Bucket4j) на пару username+IP (IP — первый адрес
-   `X-Forwarded-For`, при отсутствии заголовка `remoteAddr`). Переполнение →
+   `X-Forwarded-For`, при отсутствии заголовка `remoteAddr`; username — уже нормализованный из
+   `LoginRequest`/`RegisterRequest`). Переполнение →
    `DomainException(TOO_MANY_AUTH_ATTEMPTS)` → **429** с телом `ErrorResponse`. Бакеты in-memory — Caffeine-кэш
    (`maximumSize` 100 000, `expireAfterAccess` 1 ч; вытеснение простаивающих ключей предохраняет
    карту от роста под скриптовым перебором username). Состояние локально для инстанса: при
@@ -289,10 +304,14 @@ snapshot_date)` покрывает выборку динамики по клие
    Учёт при загрузке: `CustomUserDetails.isAccountNonLocked()` — `DaoAuthenticationProvider`
    отклоняет заблокированный аккаунт до сверки пароля (`LockedException`), ответ — тот же единый
    401 "Invalid credentials", причина не раскрывается. Инкремент выполняет
-   `AccountLockoutService.registerFailedLogin` в отдельной транзакции (`REQUIRES_NEW`):
+   `AccountLockoutService.registerFailedLogin` атомарным bulk-UPDATE
+   (`UserRepository.registerFailedLogin`: `failedAttempts + 1` и `lockedUntil` по `case` при
+   достижении порога — одним UPDATE на уровне строки, п. 31 §10; read-modify-write над сущностью
+   терял инкременты при параллельных неудачных попытках) в отдельной транзакции (`REQUIRES_NEW`):
    внешний `login` помечен `@Transactional` и откатывается по 401 — без отдельной транзакции
    откат стирал бы инкремент (тот же принцип, что у refresh-ротации: мутация-последствие живёт
-   вне откатывающейся транзакции, см. `refresh` выше).
+   вне откатывающейся транзакции, см. `refresh` выше). Сброс при успехе — симметричный условный
+   bulk-UPDATE (`resetFailedLogins`: чистый аккаунт не затрагивается).
 
 Очистка: просроченные токены (в том числе уже ротированные) удаляет `RefreshTokenCleanupJob`
 (`scheduling/`, `@EnableScheduling` на `KcrBackendApplication`) — `@Scheduled`-cron
@@ -304,15 +323,16 @@ Bootstrap первого администратора (п. 27 §10, закрыт
 (`bootstrap/`, `ApplicationRunner`). Без него после чистого деплоя административный API мёртв:
 регистрация всегда создаёт OPERATOR, а создание/правка клиентов защищены `hasRole('ADMIN')`.
 Каждый старт: если пользователей с ролью ADMIN нет (`existsByRole`), учётная запись создаётся
-из `ADMIN_USERNAME`/`ADMIN_PASSWORD` (пароль — тем же `PasswordEncoder`, роль ADMIN, email NULL);
+из `ADMIN_USERNAME`/`ADMIN_PASSWORD` (username — через `UserIdentityNormalizer` к нижнему
+регистру, как все записи `users`; пароль — тем же `PasswordEncoder`, роль ADMIN, email NULL);
 есть хоть один ADMIN — no-op (идемпотентно). Учётные данные не заданы: prod — fail-fast при
 старте (чистый деплой без возможности управления не должен подниматься), dev — WARN и
 продолжение (значения — из `.env`, см. §7). Занятый username (например, OPERATOR с тем же
-именем) — ошибка конфигурации, fail-fast в обоих профилях. Для эксплуатации — одноразовая
-команда `--create-admin`: создаёт учётную запись из тех же переменных независимо от
-существующих ADMIN (добавление администраторов), после чего приложение завершается
-(`SpringApplication.exit`; при работающем инстансе запускать с `--server.port=0`,
-см. §8).
+именем — exists-проверка по нормализованному значению) — ошибка конфигурации, fail-fast в
+обоих профилях. Для эксплуатации — одноразовая команда `--create-admin`: создаёт учётную
+запись из тех же переменных независимо от существующих ADMIN (добавление администраторов),
+после чего приложение завершается (`SpringApplication.exit`; при работающем инстансе
+запускать с `--server.port=0`, см. §8).
 
 ## 6. Исключения и контракт ошибок
 
@@ -345,20 +365,22 @@ HTTP-статус и сообщение по умолчанию, имя конс
 | `CLIENT_ALREADY_EXISTS` | 409 | POST /clients: exists-проверка и гонка в БД (констрейнт) |
 | `BLANK_ORGANIZATION_NAME` | 400 | PATCH /clients (пустое название) |
 | `INVALID_SORT_FIELD` / `INVALID_SORT_DIRECTION` | 400 | GET /clients (whitelist сортировки) |
-| `VALIDATION_FAILED` | 400 | `MethodArgumentNotValidException` (Bean Validation DTO) |
+| `VALIDATION_FAILED` | 400 | `MethodArgumentNotValidException` (Bean Validation DTO) и `HandlerMethodValidationException` (встроенная method-validation параметров контроллера — пагинация, п. 28 §10) |
 | `MALFORMED_REQUEST_BODY` | 400 | `HttpMessageNotReadableException` (невалидный JSON) |
 | `INVALID_REQUEST_PARAMETER` | 400 | `MethodArgumentTypeMismatchException` (query/path-параметр) |
 | `RESOURCE_NOT_FOUND` | 404 | `NoResourceFoundException` (несуществующий маршрут) |
 | `DATA_CONFLICT` | 409 | нарушение целостности БД по неизвестному констрейнту |
 | `SHA256_UNAVAILABLE` | 500 | JRE без SHA-256 (недостижимо на стандартном JRE) |
+| `INTERNAL_ERROR` | 500 | catch-all `@ExceptionHandler(Exception.class)` — непредвиденное исключение (п. 32 §10); причина — только в лог, ответ нейтрален. Отказ авторизации (`AccessDeniedException` от `@PreAuthorize`) в catch-all не попадает: отдельный хендлер перебрасывает исключение в security-фильтр — 403 решается `ExceptionTranslationFilter` |
 
 - `DataIntegrityViolationException` (гонка «exists-проверка + save» при конкурентной записи)
-  различается по имени нарушенного констрейнта: Hibernate
+  различается по имени нарушенного констрейнта/индекса: Hibernate
   `ConstraintViolationException#getConstraintName`, при отсутствии обёртки в цепочке причин —
-  парсинг сообщения драйвера; `uk_users_username` → `USERNAME_ALREADY_TAKEN`,
-  `uk_users_email` → `EMAIL_ALREADY_TAKEN`, `uk_clients_kcr_code` → `CLIENT_ALREADY_EXISTS`,
-  прочее/неизвестное → `DATA_CONFLICT` (всё — 409; до п. 14 любое нарушение отвечало
-  «Username or email already taken»).
+  парсинг сообщения драйвера; `uk_users_username`/`idx_users_username_lower` →
+  `USERNAME_ALREADY_TAKEN`, `uk_users_email`/`idx_users_email_lower` → `EMAIL_ALREADY_TAKEN`,
+  `uk_clients_kcr_code` → `CLIENT_ALREADY_EXISTS`, прочее/неизвестное → `DATA_CONFLICT`
+  (всё — 409; `uk_*` — констрейнты V1/V3, `idx_*_lower` — функциональные unique-индексы
+  V7, п. 30 §10; до п. 14 любое нарушение отвечало «Username or email already taken»).
 - Сервисы бросают только `DomainException`; маппинг в HTTP — исключительная зона ответственности
   хендлера. Неаутентифицированным `RestAuthenticationEntryPoint` отдаёт тот же контракт
   (`AUTHENTICATION_REQUIRED`).
@@ -425,7 +447,7 @@ HTTP-статус и сообщение по умолчанию, имя конс
 java -jar build/libs/kcr-backend-0.0.1-SNAPSHOT.jar --create-admin
 ```
 
-## 9. Текущее состояние (актуально на 2026-10-30)
+## 9. Текущее состояние (актуально на 2026-11-03)
 
 Готово:
 - каркас приложения, SecurityConfig (stateless JWT, `/api/auth/**` публичные), JWT-инфраструктура
@@ -671,6 +693,47 @@ java -jar build/libs/kcr-backend-0.0.1-SNAPSHOT.jar --create-admin
   forced-режим с существующими ADMIN и без учётных данных); `./gradlew build` проходит
   (91 тест).
 
+- пп. 28–32 §10 закрыты (2026-11-03, ветка `feature/auth`) — вся группа P1 «до первого
+  продакшена»:
+  - п. 28: пагинация валидируется constraint-аннотациями на параметрах `ClientController`
+    (`@Min(0) page`, `@Min(1) @Max(PageLimits.MAX_PAGE_SIZE) size`; встроенная method-validation
+    Boot — без `@Validated`), нарушение → 400 `VALIDATION_FAILED` (`HandlerMethodValidationException`
+    в `GlobalExceptionHandler` со сводкой по параметрам). Константа `PageLimits.MAX_PAGE_SIZE`
+    (100) — в `common/`, под эндпоинты истории §11.4.
+  - п. 29: доменные правила формата — в переиспользуемых constraint-аннотациях
+    `common/validation/` (`@Inn` — 10 или 12 цифр, `@Kpp` — 9, `@KcrCode` — канонический
+    `^[A-Z]{3}\d{5}$`); паттерны — публичные константы валидаторов, парсер импорта
+    (`ClientExcelParser`, `ExcelCells.matchesKcrCode` — регистронезависимо, сырые ячейки)
+    использует те же правила: источник данных заменяем, правило одно. Нормализация кода KCR
+    при записи — `common/KcrCodeNormalizer` (trim + верхний регистр) в компакт-конструкторе
+    `ClientCreateRequest`, `@KcrCode` проверяет канонический вид. Ручной POST/PATCH теперь
+    принимает 10-значный ИНН (раньше только 12 — расхождение с парсером устранено).
+  - п. 30: регистронезависимая уникальность username/email — функциональные unique-индексы
+    `idx_users_username_lower`/`idx_users_email_lower` по `lower(...)` (миграция
+    `V7__users_case_insensitive_identity.sql`; выбор против `citext` — без
+    `CREATE EXTENSION`-привилегий). Запись и поиск — в нижнем регистре
+    (`common/UserIdentityNormalizer`): компакт-конструкторы `RegisterRequest`/`LoginRequest`
+    (username и email) и `AdminBootstrap` (config-значение минует DTO); email-нормализация
+    `contactEmail` клиентов не менялась (только trim). `Admin`/`admin` — один аккаунт,
+    вход не чувствителен к регистру. Маппинг 409 дополнен именами новых индексов
+    (`uk_*` оставлены для совместимости истории миграций).
+  - п. 31: инкремент счётчика блокировки — атомарный bulk-UPDATE
+    `UserRepository.registerFailedLogin` (`failedAttempts + 1`, `lockedUntil` — `case` при
+    достижении порога, параметры конфигурации передаются вызывающим; read-modify-write над
+    сущностью терял инкременты при параллельных неудачных попытках), сброс — условный
+    bulk-UPDATE `resetFailedLogins` (чистый аккаунт не затрагивается). `REQUIRES_NEW`
+    у `registerFailedLogin` сохранён.
+  - п. 32 (остаток — catch-all): `@ExceptionHandler(Exception.class)` → 500
+    `INTERNAL_ERROR` в едином контракте, стек — в лог, ответ нейтрален.
+    `AccessDeniedException` перебрасывается отдельным хендлером в security-фильтр —
+    403 `@PreAuthorize` остался в `ExceptionTranslationFilter`, не превращаясь в 500.
+  Тесты: `GlobalExceptionHandlerTest` (10: новые имена индексов, catch-all, rethrow
+  AccessDenied), `AccountLockoutServiceTest` переписан под bulk-методы (3),
+  `ClientRequestValidationTest` (7: констрейнты и нормализация DTO), e2e в
+  `AuthFlowIntegrationTest` (регистронезависимость username/email) и `ClientApiIntegrationTest`
+  (`page=-1`/`size=101` → 400, `size=100` → 200, ИНН 10 цифр POST/PATCH, код KCR
+  нормализуется/отвергается); `./gradlew build` проходит (101 тест).
+
 Выявленные проблемы и требуемые изменения собраны в §10 (архитектурные ревью 2026-10-24
 и 2026-10-29); ранее перечислявшиеся здесь «известные особенности» включены туда.
 
@@ -686,41 +749,7 @@ java -jar build/libs/kcr-backend-0.0.1-SNAPSHOT.jar --create-admin
 
 ### P1 — до первого продакшена
 
-28. **Валидация параметров пагинации.** `PageRequest.of` бросает `IllegalArgumentException`
-    при `page < 0` или `size < 1` — `?page=-1` сейчас отдаёт 500; `size` не ограничен сверху —
-    `?size=100000` тянет всю таблицу (вектор исчерпания памяти). Ограничить параметры
-    constraint-аннотациями (`@Min(0) page`, `@Min(1) @Max(100) size`; в Boot 4 method-validation
-    параметров контроллера встроено — нарушение → 400) и завести константу максимального
-    размера страницы в общем месте — она же понадобится эндпоинтам истории §11.4.
-29. **Один источник правил валидации домена.** Одни и те же инварианты описаны дважды и
-    расходятся: ИНН в `ClientCreateRequest`/`ClientUpdateRequest` — ровно 12 цифр, парсер
-    импорта — 10 или 12 (клиента-юрлицо с 10-значным ИНН нельзя создать руками, но можно
-    импортировать); формат кода KCR (`^[A-Za-z]{3}\d{5}$`, верхний регистр) есть только в
-    парсере — ручной `POST /clients` принимает произвольную строку, и будущий upsert по коду
-    не сопоставит рукотворный `abc12345` с импортированным `ABC12345`. Вынести правила в
-    переиспользуемые Bean Validation-констрейнты (`@Inn`, `@Kpp`, `@KcrCode`: проверка +
-    нормализация регистра) и применять их и в DTO, и в парсере — источник данных заменяем
-    (§11.6), правила домена — одни.
-30. **Регистронезависимая уникальность username и email.** Сравнение сейчас точное: `Admin` и
-    `admin` — два разных аккаунта, вход чувствителен к регистру. Перевести колонки на `citext`
-    (миграция: `CREATE EXTENSION IF NOT EXISTS citext` + `ALTER … TYPE citext`, уникальные
-    констрейнты пересоздаются по citext-семантике) либо функциональные индексы
-    `unique (lower(username))` / `unique (lower(email))` с нормализацией к нижнему регистру
-    при записи и поиске. Для `clients.kcr_code` citext не нужен: код — идентификатор с
-    каноническим видом, достаточно нормализации регистра при записи (п. 29) и обычного unique.
-31. **Атомарный инкремент счётчика блокировки.** `AccountLockoutService.registerFailedLogin` —
-    read-modify-write над сущностью: две параллельные неудачные попытки читают одно и то же
-    значение и обе пишут `+1` — один инкремент теряется, порог срабатывает позже
-    `max-failed-attempts`. Заменить на bulk-UPDATE (`@Modifying @Query`):
-    `failedAttempts = failedAttempts + 1, lockedUntil = case when failedAttempts + 1 >= :max
-    then :deadline else lockedUntil end where username = :username` — атомарно на уровне
-    строки и без загрузки сущности; сброс — симметричный `update … set failedAttempts = 0,
-    lockedUntil = null where id = :id and (failedAttempts <> 0 or lockedUntil is not null)`.
-    `REQUIRES_NEW` сохраняется.
-32. **Catch-all обработчик непредвиденных исключений.** Неперехваченное исключение контроллера
-    уходит в дефолтный `/error` мимо `ErrorResponse` — добавить catch-all
-    `@ExceptionHandler(Exception.class)` → 500 с нейтральным сообщением (стек — в лог, не в
-    ответ).
+Закрыты полностью (пп. 28–32, 2026-11-03 — см. §9); группа удалена из плана.
 
 ### P2 — качество и готовность к нагрузке
 

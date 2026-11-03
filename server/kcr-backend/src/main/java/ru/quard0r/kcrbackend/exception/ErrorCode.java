@@ -33,7 +33,8 @@ public enum ErrorCode {
     DATA_CONFLICT(HttpStatus.CONFLICT, "Data integrity violation"),
 
     // внутренние
-    SHA256_UNAVAILABLE(HttpStatus.INTERNAL_SERVER_ERROR, "SHA-256 digest is not available in the JRE");
+    SHA256_UNAVAILABLE(HttpStatus.INTERNAL_SERVER_ERROR, "SHA-256 digest is not available in the JRE"),
+    INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "Internal server error");
 
     private final HttpStatus httpStatus;
     private final String message;

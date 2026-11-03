@@ -332,6 +332,48 @@ class AuthFlowIntegrationTest {
                 "SELECT email FROM users WHERE username = ?", String.class, "itmail-c-" + suffix));
     }
 
+    @Test
+    void usernameAndEmailUniquenessAndLoginAreCaseInsensitive() throws Exception {
+        // П. 30 §10: уникальность username/email — по lower(...), записи хранятся
+        // в нижнем регистре, вход не чувствителен к регистру.
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        String username = "caseuser-" + suffix;
+        String password = "password123";
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"CaseUser-" + suffix + "\",\"password\":\"" + password + "\"}"))
+                .andExpect(status().isCreated());
+
+        assertEquals(username, jdbcTemplate.queryForObject(
+                "SELECT username FROM users WHERE lower(username) = ?", String.class, username));
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"CASEUSER-" + suffix.toUpperCase() + "\",\"password\":\"" + password + "\"}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"CASEUSER-" + suffix.toUpperCase() + "\",\"password\":\"" + password + "\"}"))
+                .andExpect(status().isConflict());
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"caseb-" + suffix + "\",\"password\":\"" + password + "\","
+                                + "\"email\":\"Mixed.Case@Mail.COM\"}"))
+                .andExpect(status().isCreated());
+
+        assertEquals("mixed.case@mail.com", jdbcTemplate.queryForObject(
+                "SELECT email FROM users WHERE username = ?", String.class, "caseb-" + suffix));
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"casec-" + suffix + "\",\"password\":\"" + password + "\","
+                                + "\"email\":\"mixed.case@mail.com\"}"))
+                .andExpect(status().isConflict());
+    }
+
     private record RefreshResponse(int status, String body) {
     }
 

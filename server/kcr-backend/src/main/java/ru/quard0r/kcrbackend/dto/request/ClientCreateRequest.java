@@ -2,23 +2,26 @@ package ru.quard0r.kcrbackend.dto.request;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import ru.quard0r.kcrbackend.common.EmailNormalizer;
+import ru.quard0r.kcrbackend.common.KcrCodeNormalizer;
+import ru.quard0r.kcrbackend.common.validation.Inn;
+import ru.quard0r.kcrbackend.common.validation.KcrCode;
+import ru.quard0r.kcrbackend.common.validation.Kpp;
 import ru.quard0r.kcrbackend.model.ClientType;
 
 import java.util.List;
 
 public record ClientCreateRequest (
         @NotBlank(message = "KCR code must not be blank")
-        @Size(max = 255, message = "KCR code must be up to 255 characters")
+        @KcrCode
         String kcrCode,
 
         @NotBlank(message = "INN must not be blank")
-        @Pattern(regexp = "\\d{12}", message = "INN must be 12 digits")
+        @Inn
         String inn,
 
-        @Pattern(regexp = "\\d{9}", message = "KPP must be 9 digits")
+        @Kpp
         String kpp,
 
         @NotBlank(message = "Organization name must not be blank")
@@ -57,6 +60,7 @@ public record ClientCreateRequest (
 ) {
 
     public ClientCreateRequest {
+        kcrCode = KcrCodeNormalizer.normalize(kcrCode);
         contactEmail = EmailNormalizer.normalize(contactEmail);
     }
 }

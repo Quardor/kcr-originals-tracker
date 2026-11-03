@@ -11,6 +11,7 @@ import org.springframework.core.env.Environment;
 import org.springframework.core.env.Profiles;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
+import ru.quard0r.kcrbackend.common.UserIdentityNormalizer;
 import ru.quard0r.kcrbackend.model.Role;
 import ru.quard0r.kcrbackend.model.User;
 import ru.quard0r.kcrbackend.repository.UserRepository;
@@ -44,7 +45,7 @@ public class AdminBootstrap implements ApplicationRunner {
         this.passwordEncoder = passwordEncoder;
         this.environment = environment;
         this.applicationContext = applicationContext;
-        this.adminUsername = adminUsername;
+        this.adminUsername = UserIdentityNormalizer.username(adminUsername);
         this.adminPassword = adminPassword;
     }
 

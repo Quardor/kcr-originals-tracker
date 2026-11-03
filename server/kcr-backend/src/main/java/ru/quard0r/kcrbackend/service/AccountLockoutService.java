@@ -25,21 +25,11 @@ public class AccountLockoutService {
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void registerFailedLogin(String username) {
-        userRepository.findByUsername(username).ifPresent(user -> {
-            int attempts = user.getFailedAttempts() + 1;
-            user.setFailedAttempts(attempts);
-            if (attempts >= maxFailedAttempts) {
-                user.setLockedUntil(Instant.now().plus(lockDuration));
-            }
-            userRepository.save(user);
-        });
+        userRepository.registerFailedLogin(username, maxFailedAttempts,
+                Instant.now().plus(lockDuration));
     }
 
     public void resetFailedLogins(User user) {
-        if (user.getFailedAttempts() > 0 || user.getLockedUntil() != null) {
-            user.setFailedAttempts(0);
-            user.setLockedUntil(null);
-            userRepository.save(user);
-        }
+        userRepository.resetFailedLogins(user.getId());
     }
 }
