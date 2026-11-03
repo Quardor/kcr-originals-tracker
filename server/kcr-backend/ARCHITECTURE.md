@@ -59,8 +59,9 @@ ru.quard0r.kcrbackend
 │                             ClientExcelParser / SnapshotExcelParser — тонкие адаптеры реальных
 │                             выгрузок → командные DTO (§11.6), формат-валидация внутри; ExcelCells —
 │                             чтение ячеек, нормализация заголовков, поиск колонки кода KCR;
-│                             ParseResult/ParseIssue; dto/ (ClientUpsertCommand, SnapshotCreateCommand).
-│                             UpsertService и REST-эндпоинты — план (§11.8)
+│                             ParseResult/ParseIssue; dto/ (командные DTO + отчёты preview/apply);
+│                             ClientUpsertService / SnapshotImportService — upsert и применение;
+│                             REST-эндпоинты — ImportController (§11.4, 2026-11-04)
 ├── model/                  — JPA-сущности (User, RefreshToken, Client, DocumentTransferSnapshot)
 │                             + enum'ы (Role, ClientType)
 ├── repository/             — Spring Data JPA репозитории (UserRepository, RefreshTokenRepository,
@@ -390,9 +391,13 @@ RuntimeException
   строки (пустой код); срез — 12764 команды, 8 ошибок (по одному «#N/A» на лист + реальные
   дубли ISE83063 в двух листах). Тесты: `ClientExcelParserTest` (9), `SnapshotExcelParserTest`
   (7) — синтетические фикстуры в памяти, воспроизводящие лейауты реальных файлов (реальные
-  данные в репозиторий не попадают); `./gradlew build` проходит (49 тестов). Осталось шагом
-  3 §11.8: upsert-сервис (без удаления отсутствующих, наследование total, события `IMPORT`)
-  и эндпоинты preview/применение.
+  данные в репозиторий не попадают); `./gradlew build` проходит (49 тестов). Шаг 3 §11.8
+  выполнен 2026-11-04 (ветка `feature/client`): `ClientUpsertService` (upsert по коду KCR без
+  удаления отсутствующих, patch-семантика — null в файле не затирает поле, новый клиент без
+  ИНН/названия — построчная ошибка отчёта), `SnapshotImportService` (сопоставление по коду,
+  наследование `total_documents` от последнего среза клиента и периода) и эндпоинты
+  preview/применение — `ImportController` (§11.4). Не сделано: пересчёт категорий и события
+  `IMPORT` — вместе с `V6`/`client_events` (пп. 1–2 §11.8).
 
 Выявленные проблемы и требуемые изменения собраны в §10 (архитектурное ревью от 2026-10-24);
 ранее перечислявшиеся здесь «известные особенности» включены туда.
@@ -647,15 +652,15 @@ SECOND_CALL → CLAIM_WORK → COMPLETED`; `IN_POOL` — «администра�
 | `POST /api/v1/worklist` | админ: перевести отобранных клиентов в пул (`IN_POOL`) — после фильтров или ИИ-выборки |
 | `GET /api/v1/stats/summary` | счётчики по категориям динамики |
 
-Импорт (Excel, multipart, Apache POI; парсеры-адаптеры готовы — §9, осталось upsert + отчёты
-+ события `IMPORT`):
+Импорт (Excel, multipart, Apache POI; парсеры-адаптеры — §9, upsert-сервисы и эндпоинты —
+2026-11-04; события `IMPORT` и пересчёт категорий — с `V6`/`client_events`):
 
 | Метод и путь | Назначение |
 |---|---|
 | `POST /api/v1/import/clients/preview` | валидация без записи: обязательные колонки, форматы, дубли кода KCR в файле → ошибка с указанием причины, diff новых/обновляемых |
 | `POST /api/v1/import/clients` | применение; отчёт: создано / обновлено / строки с ошибками |
 | `POST /api/v1/import/snapshots/preview` | валидация: сопоставление по коду KCR, дубли, согласованность счётчиков, наследование `total_documents` |
-| `POST /api/v1/import/snapshots` | применение; несопоставленные коды — в отчёте и файлом на скачивание; после записи — пересчёт категорий; загрузка создаёт события `IMPORT` |
+| `POST /api/v1/import/snapshots` | применение; несопоставленные коды — в JSON-отчёте (скачиваемый файл отложен); после записи — пересчёт категорий; загрузка создаёт события `IMPORT` |
 
 Претензии (админ): `POST /api/v1/clients/{id}/claims`, `PATCH /api/v1/claims/{id}`,
 `POST /api/v1/claims/{id}/sanctions`, `PATCH /api/v1/sanctions/{id}` — мутации дублируются
@@ -726,10 +731,12 @@ ru.quard0r.kcrbackend
    атомарностью взятия, `GET /worklist/today`.
 2. **Динамика** (`V6`): сервис категоризации срезов, `previous_not_transferred`, фильтры
    по динамике в списке.
-3. **Excel-импорт**: парсеры-адаптеры клиентов и срезов готовы (2026-10-27, пакет `imports`,
-   §9). Осталось: upsert-сервис (upsert по коду KCR без удаления отсутствующих, наследование
-   `total_documents`, пересчёт категорий, события `IMPORT`) и эндпоинты preview/применение
-   с отчётами (§11.4).
+3. **Excel-импорт**: парсеры-адаптеры клиентов и срезов (2026-10-27, пакет `imports`,
+   §9); upsert-сервисы (`ClientUpsertService` — upsert по коду KCR без удаления отсутствующих,
+   patch-семантика обновления; `SnapshotImportService` — наследование `total_documents`,
+   несопоставленные коды в отчёте) и эндпоинты preview/применение с отчётами (`ImportController`,
+   §11.4) — 2026-11-04, ветка `feature/client`. Осталось: пересчёт категорий и события
+   `IMPORT` — вместе с `V6`/`client_events` (пп. 1–2).
 4. **Пул и статистика**: `POST /worklist` (перевод в `IN_POOL`), `GET /worklist/available`,
    `GET /stats/summary`.
 5. **Претензии и санкции** (`V8`) + API.

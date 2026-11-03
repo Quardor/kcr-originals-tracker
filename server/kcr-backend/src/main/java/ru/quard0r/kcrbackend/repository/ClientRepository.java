@@ -4,6 +4,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import ru.quard0r.kcrbackend.model.Client;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 public interface ClientRepository extends JpaRepository<Client, Long>, JpaSpecificationExecutor<Client> {
@@ -11,4 +13,6 @@ public interface ClientRepository extends JpaRepository<Client, Long>, JpaSpecif
     Optional<Client> findByKcrCode(String kcrCode);
 
     boolean existsByKcrCode(String kcrCode);
+
+    List<Client> findByKcrCodeIn(Collection<String> kcrCodes);
 }
