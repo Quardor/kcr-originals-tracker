@@ -5,6 +5,8 @@ import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.ss.usermodel.WorkbookFactory;
+import ru.quard0r.kcrbackend.common.validation.InnValidator;
+import ru.quard0r.kcrbackend.common.validation.KppValidator;
 import ru.quard0r.kcrbackend.imports.dto.ClientUpsertCommand;
 import ru.quard0r.kcrbackend.model.ClientType;
 
@@ -17,7 +19,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -26,11 +27,10 @@ import java.util.stream.Collectors;
  * is located by content because in the real export its header heads an empty column while
  * the codes sit one column to the left (see {@link ExcelCells#locateCodeColumn}).
  * Embedded per-period debt columns are not imported — snapshots come from their own export.
+ * Domain formats (INN, KPP, KCR code) are validated against the shared rules of
+ * {@code common/validation} — the data source is replaceable, the domain rules are not.
  */
 public class ClientExcelParser {
-
-    private static final Pattern INN = Pattern.compile("^(\\d{10}|\\d{12})$");
-    private static final Pattern KPP = Pattern.compile("^\\d{9}$");
 
     private static final Map<String, ClientType> CLIENT_TYPE_VALUES = Map.of(
             "vip", ClientType.VIP,
@@ -106,12 +106,12 @@ public class ClientExcelParser {
         }
 
         String inn = text(row, columns, Field.INN);
-        if (inn != null && !INN.matcher(inn).matches()) {
+        if (inn != null && !InnValidator.PATTERN.matcher(inn).matches()) {
             rowIssues.add(new ParseIssue(sheetName, rowNumber, title(columns, Field.INN),
                     "INN must consist of 10 or 12 digits"));
         }
         String kpp = text(row, columns, Field.KPP);
-        if (kpp != null && !KPP.matcher(kpp).matches()) {
+        if (kpp != null && !KppValidator.PATTERN.matcher(kpp).matches()) {
             rowIssues.add(new ParseIssue(sheetName, rowNumber, title(columns, Field.KPP),
                     "KPP must consist of 9 digits"));
         }

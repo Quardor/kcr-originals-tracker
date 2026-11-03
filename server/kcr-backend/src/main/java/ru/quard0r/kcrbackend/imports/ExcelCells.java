@@ -5,6 +5,7 @@ import org.apache.poi.ss.usermodel.CellType;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.util.CellReference;
+import ru.quard0r.kcrbackend.common.validation.KcrCodeValidator;
 
 import java.math.BigDecimal;
 import java.util.HashMap;
@@ -12,6 +13,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.StreamSupport;
 
 final class ExcelCells {
@@ -21,11 +23,9 @@ final class ExcelCells {
             "уникальны обезличинный идентификатор", "уникальный обезличенный идентификатор",
             "уникальный идентификатор");
 
-    // Real exports carry codes like JXC41156; other shapes surface as row issues
-    // instead of being silently accepted.
-    private static final String KCR_CODE_REGEX = "^[A-Za-z]{3}\\d{5}$";
+    private static final Pattern KCR_CODE_PATTERN =
+            Pattern.compile(KcrCodeValidator.REGEX, Pattern.CASE_INSENSITIVE);
 
-    // Cells pasted from another workbook keep the error literal as plain text.
     private static final Set<String> ERROR_ARTIFACTS = Set.of(
             "#N/A", "#REF!", "#VALUE!", "#DIV/0!", "#NAME?", "#NULL!", "#NUM!");
 
@@ -95,7 +95,7 @@ final class ExcelCells {
     }
 
     static boolean matchesKcrCode(String value) {
-        return value != null && value.matches(KCR_CODE_REGEX);
+        return value != null && KCR_CODE_PATTERN.matcher(value).matches();
     }
 
     static String columnLetter(int columnIndex) {

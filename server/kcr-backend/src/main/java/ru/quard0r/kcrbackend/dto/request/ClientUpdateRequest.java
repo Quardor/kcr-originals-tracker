@@ -1,17 +1,19 @@
 package ru.quard0r.kcrbackend.dto.request;
 
 import jakarta.validation.constraints.Email;
-import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import ru.quard0r.kcrbackend.common.EmailNormalizer;
+import ru.quard0r.kcrbackend.common.validation.Inn;
+import ru.quard0r.kcrbackend.common.validation.Kpp;
 import ru.quard0r.kcrbackend.model.ClientType;
 
 import java.util.List;
 
 public record ClientUpdateRequest (
-        @Pattern(regexp = "\\d{12}", message = "INN must be 12 digits")
+        @Inn
         String inn,
 
-        @Pattern(regexp = "\\d{9}", message = "KPP must be 9 digits")
+        @Kpp
         String kpp,
 
         @Size(max = 255, message = "Organization name must be up to 255 characters")
@@ -47,4 +49,8 @@ public record ClientUpdateRequest (
         @Size(max = 255, message = "Contact email must be up to 255 characters")
         String contactEmail
 ) {
+
+    public ClientUpdateRequest {
+        contactEmail = EmailNormalizer.normalize(contactEmail);
+    }
 }

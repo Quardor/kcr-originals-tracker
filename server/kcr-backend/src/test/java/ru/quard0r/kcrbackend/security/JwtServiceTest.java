@@ -1,11 +1,10 @@
 package ru.quard0r.kcrbackend.security;
 
-import io.jsonwebtoken.ExpiredJwtException;
-import io.jsonwebtoken.JwtException;
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.test.util.ReflectionTestUtils;
 import ru.quard0r.kcrbackend.model.Role;
 import ru.quard0r.kcrbackend.model.User;
@@ -14,62 +13,62 @@ import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
+// JwtService отвечает только за выдачу; проверка токена — NimbusJwtDecoder
+// (SecurityConfig), пути валидного/истёкшего/подделанного токена покрыты
+// конвертером и интеграционными сценариями.
 class JwtServiceTest {
 
     private static final String SECRET = "test-secret-key-with-at-least-32-bytes!!";
 
     private JwtService jwtService;
+    private SecretKey key;
 
     @BeforeEach
     void setUp() {
-        SecretKey key = Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8));
+        key = Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8));
         jwtService = new JwtService(key);
         ReflectionTestUtils.setField(jwtService, "accessTokenExpiration", 60_000L);
     }
 
-    private UserDetails userDetails(String username) {
-        return org.springframework.security.core.userdetails.User.builder()
+    private User user(long id, String username) {
+        return User.builder()
+                .id(id)
                 .username(username)
-                .password("$2a$10$hash")
-                .authorities("ROLE_OPERATOR")
-                .build();
-    }
-
-    @Test
-    void tokenRoundTripKeepsUsername() {
-        User user = User.builder()
-                .username("user")
                 .password("hash")
                 .email("user@mail.com")
                 .role(Role.OPERATOR)
                 .build();
+    }
 
-        String token = jwtService.generateAccessToken(user);
-
-        assertEquals("user", jwtService.extractUsername(token));
-        assertTrue(jwtService.isTokenValid(token, userDetails("user")));
-        assertFalse(jwtService.isTokenValid(token, userDetails("other")));
+    private Claims parse(String token) {
+        return Jwts.parser().verifyWith(key).build().parseSignedClaims(token).getPayload();
     }
 
     @Test
-    void expiredTokenFailsToParse() {
-        ReflectionTestUtils.setField(jwtService, "accessTokenExpiration", -1_000L);
-        User user = User.builder().username("user").password("hash").role(Role.OPERATOR).build();
+    void tokenCarriesUserIdAndClaims() {
+        User user = user(42L, "user");
 
         String token = jwtService.generateAccessToken(user);
 
-        assertThrows(ExpiredJwtException.class, () -> jwtService.extractUsername(token));
+        Claims claims = parse(token);
+        assertEquals("42", claims.getSubject());
+        assertEquals("user", claims.get("preferred_username", String.class));
+        assertEquals("user@mail.com", claims.get("email", String.class));
+        assertEquals("OPERATOR", claims.get("roles", String.class));
+        assertNotNull(claims.getId());
+        assertNotNull(claims.getExpiration());
     }
 
     @Test
-    void tamperedTokenFailsToParse() {
-        User user = User.builder().username("user").password("hash").role(Role.OPERATOR).build();
-        String token = jwtService.generateAccessToken(user) + "x";
+    void eachTokenGetsUniqueJti() {
+        User user = user(42L, "user");
 
-        assertThrows(JwtException.class, () -> jwtService.extractUsername(token));
+        String first = jwtService.generateAccessToken(user);
+        String second = jwtService.generateAccessToken(user);
+
+        assertNotEquals(parse(first).getId(), parse(second).getId());
     }
 }

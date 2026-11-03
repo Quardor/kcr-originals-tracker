@@ -1,6 +1,8 @@
 package ru.quard0r.kcrbackend.controller;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -15,12 +17,14 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import ru.quard0r.kcrbackend.common.PageLimits;
 import ru.quard0r.kcrbackend.dto.request.ClientCreateRequest;
 import ru.quard0r.kcrbackend.dto.request.ClientUpdateRequest;
 import ru.quard0r.kcrbackend.dto.response.ClientResponse;
 import ru.quard0r.kcrbackend.dto.response.PageResponse;
 import ru.quard0r.kcrbackend.dto.response.SnapshotResponse;
-import ru.quard0r.kcrbackend.exception.base.BadRequestException;
+import ru.quard0r.kcrbackend.exception.DomainException;
+import ru.quard0r.kcrbackend.exception.ErrorCode;
 import ru.quard0r.kcrbackend.model.ClientType;
 import ru.quard0r.kcrbackend.service.ClientService;
 
@@ -43,13 +47,16 @@ public class ClientController {
             @RequestParam(required = false) Boolean kcrActive,
             @RequestParam(required = false) Boolean kcrBlocked,
             @RequestParam(required = false) String flag,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "0") @Min(value = 0, message = "page must be >= 0") int page,
+            @RequestParam(defaultValue = "20")
+            @Min(value = 1, message = "size must be >= 1")
+            @Max(value = PageLimits.MAX_PAGE_SIZE, message = "size must be <= " + PageLimits.MAX_PAGE_SIZE)
+            int size,
             @RequestParam(defaultValue = "id") String sortBy,
             @RequestParam(defaultValue = "asc") String sortDir)
     {
         if (!SORT_FIELDS.contains(sortBy)) {
-            throw new BadRequestException("Invalid sort field");
+            throw new DomainException(ErrorCode.INVALID_SORT_FIELD);
         }
         Sort.Direction direction = parseDirection(sortDir);
         PageRequest pageRequest = PageRequest.of(page, size, Sort.by(direction, sortBy));
@@ -91,7 +98,7 @@ public class ClientController {
         return switch (sortDir.toLowerCase(Locale.ROOT)) {
             case "asc" -> Sort.Direction.ASC;
             case "desc" -> Sort.Direction.DESC;
-            default -> throw new BadRequestException("Invalid sort direction");
+            default -> throw new DomainException(ErrorCode.INVALID_SORT_DIRECTION);
         };
     }
 }
