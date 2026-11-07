@@ -1,11 +1,11 @@
-package ru.quard0r.kcrbackend.dto.request;
+package ru.quard0r.kcrbackend.clients.dto;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.Size;
+import ru.quard0r.kcrbackend.clients.model.ClientType;
 import ru.quard0r.kcrbackend.common.EmailNormalizer;
 import ru.quard0r.kcrbackend.common.validation.Inn;
 import ru.quard0r.kcrbackend.common.validation.Kpp;
-import ru.quard0r.kcrbackend.model.ClientType;
 
 import java.util.List;
 

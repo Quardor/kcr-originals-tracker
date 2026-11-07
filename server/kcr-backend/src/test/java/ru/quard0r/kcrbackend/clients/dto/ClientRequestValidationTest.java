@@ -1,4 +1,4 @@
-package ru.quard0r.kcrbackend.dto.request;
+package ru.quard0r.kcrbackend.clients.dto;
 
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validation;

@@ -1,4 +1,4 @@
-package ru.quard0r.kcrbackend.service;
+package ru.quard0r.kcrbackend.clients;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -12,16 +12,16 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
-import ru.quard0r.kcrbackend.dto.request.ClientCreateRequest;
-import ru.quard0r.kcrbackend.dto.request.ClientUpdateRequest;
-import ru.quard0r.kcrbackend.dto.response.ClientResponse;
-import ru.quard0r.kcrbackend.dto.response.PageResponse;
+import ru.quard0r.kcrbackend.clients.dto.ClientCreateRequest;
+import ru.quard0r.kcrbackend.clients.dto.ClientUpdateRequest;
+import ru.quard0r.kcrbackend.clients.dto.ClientResponse;
+import ru.quard0r.kcrbackend.clients.model.Client;
+import ru.quard0r.kcrbackend.clients.repository.ClientRepository;
+import ru.quard0r.kcrbackend.common.PageResponse;
 import ru.quard0r.kcrbackend.dto.response.SnapshotResponse;
 import ru.quard0r.kcrbackend.exception.DomainException;
 import ru.quard0r.kcrbackend.exception.ErrorCode;
-import ru.quard0r.kcrbackend.model.Client;
 import ru.quard0r.kcrbackend.model.DocumentTransferSnapshot;
-import ru.quard0r.kcrbackend.repository.ClientRepository;
 import ru.quard0r.kcrbackend.repository.DocumentTransferSnapshotRepository;
 
 import java.time.LocalDate;

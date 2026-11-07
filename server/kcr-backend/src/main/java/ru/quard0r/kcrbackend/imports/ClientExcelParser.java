@@ -7,8 +7,8 @@ import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.ss.usermodel.WorkbookFactory;
 import ru.quard0r.kcrbackend.common.validation.InnValidator;
 import ru.quard0r.kcrbackend.common.validation.KppValidator;
+import ru.quard0r.kcrbackend.clients.model.ClientType;
 import ru.quard0r.kcrbackend.imports.dto.ClientUpsertCommand;
-import ru.quard0r.kcrbackend.model.ClientType;
 
 import java.io.IOException;
 import java.io.InputStream;

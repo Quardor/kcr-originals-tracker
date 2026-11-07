@@ -9,9 +9,9 @@ import ru.quard0r.kcrbackend.exception.ErrorCode;
 import ru.quard0r.kcrbackend.imports.dto.ClientImportPreview;
 import ru.quard0r.kcrbackend.imports.dto.ClientImportReport;
 import ru.quard0r.kcrbackend.imports.dto.ClientImportRow;
+import ru.quard0r.kcrbackend.clients.model.Client;
+import ru.quard0r.kcrbackend.clients.repository.ClientRepository;
 import ru.quard0r.kcrbackend.imports.dto.ClientUpsertCommand;
-import ru.quard0r.kcrbackend.model.Client;
-import ru.quard0r.kcrbackend.repository.ClientRepository;
 
 import java.io.IOException;
 import java.util.ArrayList;

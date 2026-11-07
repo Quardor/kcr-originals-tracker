@@ -1,4 +1,4 @@
-package ru.quard0r.kcrbackend.model;
+package ru.quard0r.kcrbackend.clients.model;
 
 import jakarta.persistence.*;
 import lombok.*;

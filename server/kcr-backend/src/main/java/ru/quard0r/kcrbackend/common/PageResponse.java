@@ -1,4 +1,4 @@
-package ru.quard0r.kcrbackend.dto.response;
+package ru.quard0r.kcrbackend.common;
 
 import org.springframework.data.domain.Page;
 

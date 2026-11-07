@@ -1,8 +1,8 @@
-package ru.quard0r.kcrbackend.repository;
+package ru.quard0r.kcrbackend.clients.repository;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
-import ru.quard0r.kcrbackend.model.Client;
+import ru.quard0r.kcrbackend.clients.model.Client;
 
 import java.util.Collection;
 import java.util.List;

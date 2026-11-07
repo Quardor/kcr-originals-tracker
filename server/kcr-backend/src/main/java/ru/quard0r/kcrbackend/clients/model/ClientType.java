@@ -1,4 +1,4 @@
-package ru.quard0r.kcrbackend.model;
+package ru.quard0r.kcrbackend.clients.model;
 
 public enum ClientType {
     VIP, TECH_PARTNER, WORKS_VIA_MP, NEWCOMER

@@ -9,10 +9,10 @@ import ru.quard0r.kcrbackend.exception.ErrorCode;
 import ru.quard0r.kcrbackend.imports.dto.SnapshotCreateCommand;
 import ru.quard0r.kcrbackend.imports.dto.SnapshotImportPreview;
 import ru.quard0r.kcrbackend.imports.dto.SnapshotImportReport;
+import ru.quard0r.kcrbackend.clients.model.Client;
+import ru.quard0r.kcrbackend.clients.repository.ClientRepository;
 import ru.quard0r.kcrbackend.imports.dto.SnapshotPreviewRow;
-import ru.quard0r.kcrbackend.model.Client;
 import ru.quard0r.kcrbackend.model.DocumentTransferSnapshot;
-import ru.quard0r.kcrbackend.repository.ClientRepository;
 import ru.quard0r.kcrbackend.repository.DocumentTransferSnapshotRepository;
 
 import java.io.IOException;

@@ -1,4 +1,4 @@
-package ru.quard0r.kcrbackend.controller;
+package ru.quard0r.kcrbackend.clients;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -17,16 +17,15 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import ru.quard0r.kcrbackend.clients.dto.ClientCreateRequest;
+import ru.quard0r.kcrbackend.clients.dto.ClientResponse;
+import ru.quard0r.kcrbackend.clients.dto.ClientUpdateRequest;
+import ru.quard0r.kcrbackend.clients.model.ClientType;
 import ru.quard0r.kcrbackend.common.PageLimits;
-import ru.quard0r.kcrbackend.dto.request.ClientCreateRequest;
-import ru.quard0r.kcrbackend.dto.request.ClientUpdateRequest;
-import ru.quard0r.kcrbackend.dto.response.ClientResponse;
-import ru.quard0r.kcrbackend.dto.response.PageResponse;
+import ru.quard0r.kcrbackend.common.PageResponse;
 import ru.quard0r.kcrbackend.dto.response.SnapshotResponse;
 import ru.quard0r.kcrbackend.exception.DomainException;
 import ru.quard0r.kcrbackend.exception.ErrorCode;
-import ru.quard0r.kcrbackend.model.ClientType;
-import ru.quard0r.kcrbackend.service.ClientService;
 
 import java.util.List;
 import java.util.Locale;

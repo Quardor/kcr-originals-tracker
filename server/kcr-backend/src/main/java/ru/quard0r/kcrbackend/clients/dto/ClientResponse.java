@@ -1,8 +1,8 @@
-package ru.quard0r.kcrbackend.dto.response;
+package ru.quard0r.kcrbackend.clients.dto;
 
 import lombok.Builder;
-import ru.quard0r.kcrbackend.model.Client;
-import ru.quard0r.kcrbackend.model.ClientType;
+import ru.quard0r.kcrbackend.clients.model.Client;
+import ru.quard0r.kcrbackend.clients.model.ClientType;
 
 import java.util.List;
 
