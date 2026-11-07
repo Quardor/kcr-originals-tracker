@@ -256,6 +256,17 @@ class OperatorCycleIntegrationTest {
                         .content("{\"assigneeId\":null}"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("\"assigneeUsername\":null")));
+
+        // справочник пользователей для переназначения — только админ
+        mockMvc.perform(get("/api/v1/users")
+                        .header("Authorization", "Bearer " + operatorToken))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(get("/api/v1/users")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("\"username\":\"opr-a-" + suffix + "\"")))
+                .andExpect(content().string(containsString("\"role\":\"OPERATOR\"")));
     }
 
     @Test

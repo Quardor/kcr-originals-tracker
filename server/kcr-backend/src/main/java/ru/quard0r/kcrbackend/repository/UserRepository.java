@@ -8,11 +8,14 @@ import ru.quard0r.kcrbackend.model.Role;
 import ru.quard0r.kcrbackend.model.User;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 public interface UserRepository extends JpaRepository<User, Long> {
 
     Optional<User> findByUsername(String username);
+
+    List<User> findAllByOrderByUsernameAsc();
 
     boolean existsByRole(Role role);
 
