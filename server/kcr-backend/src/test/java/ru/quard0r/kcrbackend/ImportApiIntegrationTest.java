@@ -22,6 +22,7 @@ import java.util.regex.Pattern;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.hamcrest.Matchers.containsString;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -87,6 +88,21 @@ class ImportApiIntegrationTest {
         assertEquals("0987654321", inn(newCode));
         assertFalse(clientExists(incompleteCode));
 
+        // каждая затронутая загрузка строка оставляет IMPORT-событие в истории клиента (§11.2)
+        Long existingId = jdbcTemplate.queryForObject(
+                "SELECT id FROM clients WHERE kcr_code = ?", Long.class, existingCode);
+        Long newId = jdbcTemplate.queryForObject(
+                "SELECT id FROM clients WHERE kcr_code = ?", Long.class, newCode);
+        mockMvc.perform(get("/api/v1/clients/" + existingId + "/events")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("\"type\":\"IMPORT\"")))
+                .andExpect(content().string(containsString("Импорт клиентов: обновлён")));
+        mockMvc.perform(get("/api/v1/clients/" + newId + "/events")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("Импорт клиентов: создан")));
+
         MvcResult reapply = mockMvc.perform(multipart("/api/v1/import/clients")
                         .file(new MockMultipartFile("file", file))
                         .header("Authorization", "Bearer " + adminToken))
@@ -150,6 +166,14 @@ class ImportApiIntegrationTest {
         assertEquals(4, jdbcTemplate.queryForObject(
                 "SELECT not_transferred_documents FROM document_transfer_snapshots "
                         + "WHERE client_id = ? AND snapshot_date = '2026-10-20'", Integer.class, clientId));
+
+        // запись среза дублируется IMPORT-событием с периодом, датой и счётчиком
+        mockMvc.perform(get("/api/v1/clients/" + clientId + "/events")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("\"type\":\"IMPORT\"")))
+                .andExpect(content().string(containsString(
+                        "Импорт срезов (период «1 кв 2026», срез 2026-10-20): не передано 4")));
 
         // период, которого нет в файле, — ошибка, а не пустой импорт
         mockMvc.perform(multipart("/api/v1/import/snapshots")

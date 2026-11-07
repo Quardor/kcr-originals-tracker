@@ -9,9 +9,12 @@ import ru.quard0r.kcrbackend.exception.ErrorCode;
 import ru.quard0r.kcrbackend.imports.dto.SnapshotCreateCommand;
 import ru.quard0r.kcrbackend.imports.dto.SnapshotImportPreview;
 import ru.quard0r.kcrbackend.imports.dto.SnapshotImportReport;
+import ru.quard0r.kcrbackend.clients.events.ClientEventService;
+import ru.quard0r.kcrbackend.clients.events.ClientEventType;
 import ru.quard0r.kcrbackend.clients.model.Client;
 import ru.quard0r.kcrbackend.clients.repository.ClientRepository;
 import ru.quard0r.kcrbackend.imports.dto.SnapshotPreviewRow;
+import ru.quard0r.kcrbackend.model.User;
 import ru.quard0r.kcrbackend.model.DocumentTransferSnapshot;
 import ru.quard0r.kcrbackend.repository.DocumentTransferSnapshotRepository;
 
@@ -29,8 +32,9 @@ import java.util.stream.Collectors;
  * created only for rows whose KCR code matches an existing client; unmatched codes are
  * reported, never failed. The real export carries only the "not transferred" counter — the
  * total is inherited from the latest snapshot of the same client and period
- * (ARCHITECTURE.md §4). Recalculation of dynamics categories and IMPORT events land with
- * V6/client_events.
+ * (ARCHITECTURE.md §4). Apply leaves an IMPORT event per created snapshot in the unified
+ * history (author — the uploading admin); recalculation of dynamics categories lands with
+ * the dynamics step (§11.8 item 2).
  */
 @Service
 @RequiredArgsConstructor
@@ -38,6 +42,7 @@ public class SnapshotImportService {
 
     private final ClientRepository clientRepository;
     private final DocumentTransferSnapshotRepository snapshotRepository;
+    private final ClientEventService eventService;
     private final SnapshotExcelParser parser = new SnapshotExcelParser();
 
     public SnapshotImportPreview preview(MultipartFile file, LocalDate snapshotDate, String reportingPeriod) {
@@ -61,7 +66,8 @@ public class SnapshotImportService {
     }
 
     @Transactional
-    public SnapshotImportReport apply(MultipartFile file, LocalDate snapshotDate, String reportingPeriod) {
+    public SnapshotImportReport apply(MultipartFile file, LocalDate snapshotDate,
+                                      String reportingPeriod, User author) {
         ParseResult<SnapshotCreateCommand> result = parse(file, snapshotDate, reportingPeriod);
         Map<String, Client> clients = loadClients(result.getCommands());
 
@@ -81,6 +87,10 @@ public class SnapshotImportService {
                     .totalDocuments(resolveTotal(client, command))
                     .notTransferredDocuments(command.notTransferredDocuments())
                     .build());
+            eventService.record(client, author, ClientEventType.IMPORT,
+                    "Импорт срезов (период «%s», срез %s): не передано %d"
+                            .formatted(command.reportingPeriod(), command.snapshotDate(),
+                                    command.notTransferredDocuments()));
             created++;
         }
         return new SnapshotImportReport(created, unmatchedKcrCodes, result.getSkippedSheets(), issues);
