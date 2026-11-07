@@ -49,17 +49,19 @@ public class ImportController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<SnapshotImportPreview> previewSnapshots(
             @RequestParam("file") MultipartFile file,
-            @RequestParam("snapshotDate") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate snapshotDate)
+            @RequestParam("snapshotDate") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate snapshotDate,
+            @RequestParam("reportingPeriod") String reportingPeriod)
     {
-        return ResponseEntity.ok(snapshotImportService.preview(file, snapshotDate));
+        return ResponseEntity.ok(snapshotImportService.preview(file, snapshotDate, reportingPeriod));
     }
 
     @PostMapping("/snapshots")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<SnapshotImportReport> importSnapshots(
             @RequestParam("file") MultipartFile file,
-            @RequestParam("snapshotDate") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate snapshotDate)
+            @RequestParam("snapshotDate") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate snapshotDate,
+            @RequestParam("reportingPeriod") String reportingPeriod)
     {
-        return ResponseEntity.ok(snapshotImportService.apply(file, snapshotDate));
+        return ResponseEntity.ok(snapshotImportService.apply(file, snapshotDate, reportingPeriod));
     }
 }

@@ -1,8 +1,10 @@
 import { apiFetch } from './client';
 
-// snapshotDate — @RequestParam бэкенда: multipart-запрос передаёт его query-строкой.
-function withDate(path, snapshotDate) {
-  return `${path}?snapshotDate=${encodeURIComponent(snapshotDate)}`;
+// snapshotDate и reportingPeriod — @RequestParam бэкенда: multipart-запрос передаёт их
+// query-строкой; URLSearchParams корректно кодирует кириллицу и пробелы.
+function withSnapshotParams(path, snapshotDate, reportingPeriod) {
+  const params = new URLSearchParams({ snapshotDate, reportingPeriod });
+  return `${path}?${params.toString()}`;
 }
 
 function fileForm(file) {
@@ -21,17 +23,20 @@ export function applyClientsImport(file) {
   return apiFetch('/import/clients', { method: 'POST', formData: fileForm(file) });
 }
 
-/** Предпросмотр импорта срезов: { rows, unmatchedKcrCodes, issues }; snapshotDate — ISO yyyy-mm-dd. */
-export function previewSnapshotsImport(file, snapshotDate) {
-  return apiFetch(withDate('/import/snapshots/preview', snapshotDate), {
+/**
+ * Предпросмотр импорта срезов: { rows, unmatchedKcrCodes, skippedSheets, issues };
+ * snapshotDate — ISO yyyy-mm-dd, reportingPeriod — выбранный отчётный период (фильтр листов).
+ */
+export function previewSnapshotsImport(file, snapshotDate, reportingPeriod) {
+  return apiFetch(withSnapshotParams('/import/snapshots/preview', snapshotDate, reportingPeriod), {
     method: 'POST',
     formData: fileForm(file),
   });
 }
 
-/** Применение импорта срезов: { created, unmatchedKcrCodes, issues }. */
-export function applySnapshotsImport(file, snapshotDate) {
-  return apiFetch(withDate('/import/snapshots', snapshotDate), {
+/** Применение импорта срезов: { created, unmatchedKcrCodes, skippedSheets, issues }. */
+export function applySnapshotsImport(file, snapshotDate, reportingPeriod) {
+  return apiFetch(withSnapshotParams('/import/snapshots', snapshotDate, reportingPeriod), {
     method: 'POST',
     formData: fileForm(file),
   });

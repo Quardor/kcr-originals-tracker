@@ -24,11 +24,13 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Snapshot import over the Excel adapter (ARCHITECTURE.md §11.8 item 3): snapshots are created
- * only for rows whose KCR code matches an existing client; unmatched codes are reported, never
- * failed. The real export carries only the "not transferred" counter — the total is inherited
- * from the latest snapshot of the same client and period (ARCHITECTURE.md §4). Recalculation
- * of dynamics categories and IMPORT events land with V6/client_events.
+ * Snapshot import over the Excel adapter (ARCHITECTURE.md §11.8 item 3): the caller selects
+ * the reporting period (ТЗ scenario 2) and only matching sheets are imported, snapshots are
+ * created only for rows whose KCR code matches an existing client; unmatched codes are
+ * reported, never failed. The real export carries only the "not transferred" counter — the
+ * total is inherited from the latest snapshot of the same client and period
+ * (ARCHITECTURE.md §4). Recalculation of dynamics categories and IMPORT events land with
+ * V6/client_events.
  */
 @Service
 @RequiredArgsConstructor
@@ -38,8 +40,8 @@ public class SnapshotImportService {
     private final DocumentTransferSnapshotRepository snapshotRepository;
     private final SnapshotExcelParser parser = new SnapshotExcelParser();
 
-    public SnapshotImportPreview preview(MultipartFile file, LocalDate snapshotDate) {
-        ParseResult<SnapshotCreateCommand> result = parse(file, snapshotDate);
+    public SnapshotImportPreview preview(MultipartFile file, LocalDate snapshotDate, String reportingPeriod) {
+        ParseResult<SnapshotCreateCommand> result = parse(file, snapshotDate, reportingPeriod);
         Map<String, Client> clients = loadClients(result.getCommands());
 
         List<SnapshotPreviewRow> rows = new ArrayList<>();
@@ -55,12 +57,12 @@ public class SnapshotImportService {
                     command.snapshotDate(), command.totalDocuments(),
                     resolveTotal(client, command), command.notTransferredDocuments()));
         }
-        return new SnapshotImportPreview(rows, unmatchedKcrCodes, issues);
+        return new SnapshotImportPreview(rows, unmatchedKcrCodes, result.getSkippedSheets(), issues);
     }
 
     @Transactional
-    public SnapshotImportReport apply(MultipartFile file, LocalDate snapshotDate) {
-        ParseResult<SnapshotCreateCommand> result = parse(file, snapshotDate);
+    public SnapshotImportReport apply(MultipartFile file, LocalDate snapshotDate, String reportingPeriod) {
+        ParseResult<SnapshotCreateCommand> result = parse(file, snapshotDate, reportingPeriod);
         Map<String, Client> clients = loadClients(result.getCommands());
 
         int created = 0;
@@ -81,18 +83,28 @@ public class SnapshotImportService {
                     .build());
             created++;
         }
-        return new SnapshotImportReport(created, unmatchedKcrCodes, issues);
+        return new SnapshotImportReport(created, unmatchedKcrCodes, result.getSkippedSheets(), issues);
     }
 
-    private ParseResult<SnapshotCreateCommand> parse(MultipartFile file, LocalDate snapshotDate) {
+    private ParseResult<SnapshotCreateCommand> parse(MultipartFile file, LocalDate snapshotDate,
+                                                     String reportingPeriod) {
         if (file == null || file.isEmpty()) {
             throw new DomainException(ErrorCode.IMPORT_FILE_REQUIRED);
         }
+        if (reportingPeriod == null || reportingPeriod.isBlank()) {
+            throw new DomainException(ErrorCode.INVALID_REQUEST_PARAMETER);
+        }
+        ParseResult<SnapshotCreateCommand> result;
         try {
-            return parser.parse(file.getInputStream(), snapshotDate);
+            result = parser.parse(file.getInputStream(), snapshotDate, reportingPeriod);
         } catch (IOException | RuntimeException e) {
             throw new DomainException(ErrorCode.IMPORT_FILE_UNREADABLE);
         }
+        if (result.getCommands().isEmpty() && result.getIssues().isEmpty()
+                && !result.getSkippedSheets().isEmpty()) {
+            throw new DomainException(ErrorCode.IMPORT_PERIOD_NOT_FOUND);
+        }
+        return result;
     }
 
     private Map<String, Client> loadClients(List<SnapshotCreateCommand> commands) {

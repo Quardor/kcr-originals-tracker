@@ -23,9 +23,13 @@ import java.util.stream.Collectors;
 /**
  * Parser for the snapshot export workbook ("Срез &lt;дата&gt;"): each sheet is one reporting
  * period and carries the KCR code plus document counters per client, header in row 2.
- * The reporting period is taken from the sheet name; the snapshot date lives only in the
- * file name and is passed by the caller. A missing "документов всего" column yields null
- * totals — the upsert service inherits them from the previous snapshot of the period.
+ * The caller selects the reporting period (ТЗ scenario 2: период → дата → файл); only sheets
+ * whose name matches the selected period (case-, spacing- and ё-insensitive) are imported,
+ * and data-carrying sheets of other periods are reported as skipped — a multi-period export
+ * is loaded one period at a time, nothing lands under a foreign period. The snapshot date
+ * lives only in the file name and is passed by the caller. A missing "документов всего"
+ * column yields null totals — the upsert service inherits them from the previous snapshot
+ * of the period.
  */
 public class SnapshotExcelParser {
 
@@ -33,23 +37,38 @@ public class SnapshotExcelParser {
             .flatMap(field -> field.aliases.stream())
             .collect(Collectors.toUnmodifiableSet());
 
-    public ParseResult<SnapshotCreateCommand> parse(InputStream inputStream, LocalDate snapshotDate) throws IOException {
+    public ParseResult<SnapshotCreateCommand> parse(InputStream inputStream, LocalDate snapshotDate,
+                                                    String reportingPeriod) throws IOException {
         Objects.requireNonNull(snapshotDate, "snapshotDate must not be null");
-        List<SnapshotCreateCommand> commands = new ArrayList<>();
+        Objects.requireNonNull(reportingPeriod, "reportingPeriod must not be null");
+        String normalizedPeriod = ExcelCells.normalizeHeader(reportingPeriod);
+        if (normalizedPeriod == null) {
+            throw new IllegalArgumentException("reportingPeriod must not be blank");
+        }
+        String canonicalPeriod = reportingPeriod.strip();
+        List<RowCommand> rowCommands = new ArrayList<>();
         List<ParseIssue> issues = new ArrayList<>();
+        List<String> skippedSheets = new ArrayList<>();
         try (Workbook workbook = WorkbookFactory.create(inputStream)) {
             for (Sheet sheet : workbook) {
-                parseSheet(sheet, snapshotDate, commands, issues);
+                if (normalizedPeriod.equals(ExcelCells.normalizeHeader(sheet.getSheetName()))) {
+                    parseSheet(sheet, canonicalPeriod, snapshotDate, rowCommands, issues);
+                } else if (ExcelCells.hasData(sheet)) {
+                    skippedSheets.add(sheet.getSheetName());
+                }
             }
         }
-        if (commands.isEmpty() && issues.isEmpty()) {
+        excludeDuplicateCodes(rowCommands, issues);
+        List<SnapshotCreateCommand> commands =
+                rowCommands.stream().map(RowCommand::command).toList();
+        if (commands.isEmpty() && issues.isEmpty() && skippedSheets.isEmpty()) {
             issues.add(new ParseIssue(null, null, null, "No data rows found"));
         }
-        return new ParseResult<>(commands, issues);
+        return new ParseResult<>(commands, issues, skippedSheets);
     }
 
-    private void parseSheet(Sheet sheet, LocalDate snapshotDate,
-                            List<SnapshotCreateCommand> commands, List<ParseIssue> issues) {
+    private void parseSheet(Sheet sheet, String reportingPeriod, LocalDate snapshotDate,
+                            List<RowCommand> rowCommands, List<ParseIssue> issues) {
         String sheetName = sheet.getSheetName();
         int headerIndex = ExcelCells.findHeaderRow(sheet, ALL_ALIASES);
         if (headerIndex == -1) {
@@ -68,20 +87,18 @@ public class SnapshotExcelParser {
         }
         String codeTitle = columnTitle(sheet, headerIndex, codeColumn);
 
-        List<RowCommand> rows = new ArrayList<>();
         for (int i = headerIndex + 1; i <= sheet.getLastRowNum(); i++) {
             Row row = sheet.getRow(i);
             if (row != null) {
-                parseRow(sheetName, row, codeColumn, codeTitle, columns, snapshotDate, rows, issues);
+                parseRow(sheetName, row, codeColumn, codeTitle, columns,
+                        reportingPeriod, snapshotDate, rowCommands, issues);
             }
         }
-        excludeDuplicateCodes(sheetName, codeTitle, rows, issues);
-        rows.stream().map(RowCommand::command).forEach(commands::add);
     }
 
     private void parseRow(String sheetName, Row row, int codeColumn, String codeTitle,
-                          Map<Field, ColumnBinding> columns, LocalDate snapshotDate,
-                          List<RowCommand> rows, List<ParseIssue> issues) {
+                          Map<Field, ColumnBinding> columns, String reportingPeriod,
+                          LocalDate snapshotDate, List<RowCommand> rows, List<ParseIssue> issues) {
         if (ExcelCells.isBlankRow(row)) {
             return;
         }
@@ -112,8 +129,8 @@ public class SnapshotExcelParser {
         }
 
         if (rowIssues.isEmpty()) {
-            rows.add(new RowCommand(rowNumber, new SnapshotCreateCommand(
-                    kcrCode, sheetName.strip(), snapshotDate, totalDocuments, notTransferredDocuments)));
+            rows.add(new RowCommand(sheetName, rowNumber, new SnapshotCreateCommand(
+                    kcrCode, reportingPeriod, snapshotDate, totalDocuments, notTransferredDocuments)));
         } else {
             issues.addAll(rowIssues);
         }
@@ -142,11 +159,11 @@ public class SnapshotExcelParser {
     }
 
     /**
-     * Duplicates are an error within one sheet — one reporting period; the same code in other
-     * periods (other sheets) is a legitimate client history.
+     * Duplicates are an error within one import batch — one reporting period (matching sheets
+     * of the workbook); the same code in other periods is a legitimate client history and is
+     * never part of the batch because those sheets are filtered out.
      */
-    private void excludeDuplicateCodes(String sheetName, String codeTitle,
-                                       List<RowCommand> rows, List<ParseIssue> issues) {
+    private void excludeDuplicateCodes(List<RowCommand> rows, List<ParseIssue> issues) {
         Map<String, List<RowCommand>> byCode = rows.stream()
                 .collect(Collectors.groupingBy(rowCommand -> rowCommand.command().kcrCode()));
         List<RowCommand> duplicates = new ArrayList<>();
@@ -157,10 +174,12 @@ public class SnapshotExcelParser {
             for (RowCommand rowCommand : group) {
                 String otherRows = group.stream()
                         .filter(other -> other != rowCommand)
-                        .map(other -> String.valueOf(other.rowNumber()))
+                        .map(other -> other.sheetName().equals(rowCommand.sheetName())
+                                ? "row " + other.rowNumber()
+                                : "'%s' row %d".formatted(other.sheetName(), other.rowNumber()))
                         .collect(Collectors.joining(", "));
-                issues.add(new ParseIssue(sheetName, rowCommand.rowNumber(), codeTitle,
-                        "Duplicate KCR code, also present in row(s) %s".formatted(otherRows)));
+                issues.add(new ParseIssue(rowCommand.sheetName(), rowCommand.rowNumber(), null,
+                        "Duplicate KCR code, also present in %s".formatted(otherRows)));
             }
             duplicates.addAll(group);
         }
@@ -204,7 +223,7 @@ public class SnapshotExcelParser {
     private record ColumnBinding(int index, String title) {
     }
 
-    private record RowCommand(int rowNumber, SnapshotCreateCommand command) {
+    private record RowCommand(String sheetName, int rowNumber, SnapshotCreateCommand command) {
     }
 
     private enum Field {

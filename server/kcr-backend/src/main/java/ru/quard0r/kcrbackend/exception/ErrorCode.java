@@ -28,6 +28,7 @@ public enum ErrorCode {
     // импорт Excel (§11.4)
     IMPORT_FILE_REQUIRED(HttpStatus.BAD_REQUEST, "Import file is required"),
     IMPORT_FILE_UNREADABLE(HttpStatus.BAD_REQUEST, "Unable to read the file as an Excel workbook"),
+    IMPORT_PERIOD_NOT_FOUND(HttpStatus.BAD_REQUEST, "No sheet matches the selected reporting period"),
 
     // запрос не прошёл разбор/валидацию (ошибки фреймворка, GlobalExceptionHandler)
     VALIDATION_FAILED(HttpStatus.BAD_REQUEST, "Validation failed"),
