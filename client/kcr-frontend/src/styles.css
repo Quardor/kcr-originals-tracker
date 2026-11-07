@@ -746,3 +746,273 @@ select:focus {
     width: 100%;
   }
 }
+
+/* ---------- Операторский цикл: работа, история, претензии ---------- */
+
+.work-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 14px;
+}
+
+.work-controls select {
+  max-width: 260px;
+}
+
+.work-controls .hint {
+  margin: 8px 0 0;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px 14px;
+  margin: 12px 0;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field span {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.field-wide {
+  grid-column: 1 / -1;
+}
+
+.event-form textarea,
+.claim-form input,
+.sanction-form input {
+  font: inherit;
+  padding: 7px 10px;
+  border: 1px solid var(--border, #d5d9e0);
+  border-radius: 6px;
+  background: var(--card-bg, #fff);
+}
+
+.event-list {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.event-item {
+  border: 1px solid var(--border, #e2e6ec);
+  border-radius: 8px;
+  padding: 10px 14px;
+  background: var(--card-bg, #fff);
+}
+
+.event-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.event-meta {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.event-comment {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+}
+
+.event-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 24px;
+  margin: 8px 0 0;
+}
+
+.event-details div {
+  display: flex;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.event-details dt {
+  color: var(--muted);
+}
+
+.badge-event-call {
+  background: #e7f0ff;
+  color: #23508f;
+}
+
+.badge-event-letter_sent {
+  background: #f0ecff;
+  color: #5546a5;
+}
+
+.badge-event-comment {
+  background: #eef2f6;
+  color: #4a5768;
+}
+
+.badge-event-stage_changed {
+  background: #fff4e0;
+  color: #8a5a12;
+}
+
+.badge-event-assignee_changed {
+  background: #e6f7f1;
+  color: #1d7a5f;
+}
+
+.badge-event-import {
+  background: #eef2f6;
+  color: #4a5768;
+}
+
+.badge-event-claim,
+.badge-event-sanction {
+  background: #fdeaea;
+  color: #a03030;
+}
+
+.badge-stage-not_in_work {
+  background: #eef2f6;
+  color: #4a5768;
+}
+
+.badge-stage-in_pool {
+  background: #e7f0ff;
+  color: #23508f;
+}
+
+.badge-stage-first_call,
+.badge-stage-second_call {
+  background: #fff4e0;
+  color: #8a5a12;
+}
+
+.badge-stage-waiting_client_deadline {
+  background: #f0ecff;
+  color: #5546a5;
+}
+
+.badge-stage-recheck {
+  background: #e6f7f1;
+  color: #1d7a5f;
+}
+
+.badge-stage-claim_work {
+  background: #fdeaea;
+  color: #a03030;
+}
+
+.badge-stage-completed {
+  background: #e8f6e8;
+  color: #2c7a2c;
+}
+
+.claim-list {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.claim-item {
+  border: 1px solid var(--border, #e2e6ec);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+
+.claim-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.claim-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.sanction-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sanction-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+}
+
+.sanction-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.sanction-form input {
+  flex: 1;
+  max-width: 320px;
+}
+
+.badge-claim-new {
+  background: #eef2f6;
+  color: #4a5768;
+}
+
+.badge-claim-sent {
+  background: #e7f0ff;
+  color: #23508f;
+}
+
+.badge-claim-received {
+  background: #f0ecff;
+  color: #5546a5;
+}
+
+.badge-claim-satisfied {
+  background: #e8f6e8;
+  color: #2c7a2c;
+}
+
+.badge-claim-cancelled {
+  background: #f3f4f6;
+  color: #8a919c;
+}
+
+.badge-sanction-planned {
+  background: #fff4e0;
+  color: #8a5a12;
+}
+
+.badge-sanction-applied {
+  background: #fdeaea;
+  color: #a03030;
+}
+
+.badge-sanction-cancelled {
+  background: #f3f4f6;
+  color: #8a919c;
+}

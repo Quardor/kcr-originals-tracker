@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { fetchClient, fetchClientSnapshots } from '../api/clients';
+import { fetchUsers } from '../api/claims';
+import { fetchClient, fetchClientSnapshots, takeClient, updateAssignment, updateStage } from '../api/clients';
 import { errorMessage } from '../api/errors';
 import { useAuth } from '../auth/AuthContext';
+import ClaimsSection from '../components/ClaimsSection';
+import EventForm from '../components/EventForm';
+import HistoryFeed from '../components/HistoryFeed';
 import { ClientTypeBadge, ErrorBox, Spinner, TriStateBadge } from '../components/ui';
+import { WORK_STAGES, WORK_STAGES_OPERATOR, stageLabel } from '../labels';
 
 function Field({ label, children }) {
   return (
@@ -16,13 +21,21 @@ function Field({ label, children }) {
 
 export default function ClientCardPage() {
   const { id } = useParams();
-  const { isAdmin } = useAuth();
+  const { user, isAdmin } = useAuth();
 
   const [client, setClient] = useState(null);
   const [snapshots, setSnapshots] = useState(null);
   const [periodFilter, setPeriodFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [eventsVersion, setEventsVersion] = useState(0);
+  const [stageDraft, setStageDraft] = useState('');
+  const [users, setUsers] = useState(null);
+  const [assigneeDraft, setAssigneeDraft] = useState('');
+
+  const ownClient = client != null && client.assigneeId != null && client.assigneeId === user?.id;
+  const stageOptions = isAdmin ? WORK_STAGES : ownClient ? WORK_STAGES_OPERATOR : [];
 
   useEffect(() => {
     let cancelled = false;
@@ -45,6 +58,21 @@ export default function ClientCardPage() {
     };
   }, [id]);
 
+  useEffect(() => {
+    if (!isAdmin || users) return undefined;
+    let cancelled = false;
+    fetchUsers()
+      .then((list) => {
+        if (!cancelled) setUsers(list);
+      })
+      .catch(() => {
+        // список не критичен: переназначение останется недоступным до перезагрузки
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin, users]);
+
   const loadSnapshots = useCallback(async () => {
     try {
       setSnapshots(await fetchClientSnapshots(id, periodFilter.trim() || undefined));
@@ -60,6 +88,32 @@ export default function ClientCardPage() {
     }
     return undefined;
   }, [loadSnapshots, client, periodFilter]);
+
+  const reloadClient = useCallback(async () => {
+    try {
+      setClient(await fetchClient(id));
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }, [id]);
+
+  const run = async (action) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await action();
+      await reloadClient();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onEventCreated = () => {
+    setEventsVersion((v) => v + 1);
+    reloadClient();
+  };
 
   if (loading) return <Spinner />;
   if (error && !client) return <ErrorBox message={error} />;
@@ -83,6 +137,102 @@ export default function ClientCardPage() {
       </div>
 
       <ErrorBox message={error} />
+
+      <section className="card">
+        <div className="section-head">
+          <h2>Работа</h2>
+          {client.assigneeId == null && (
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={busy}
+              onClick={() => run(() => takeClient(client.id))}
+            >
+              Взять в работу
+            </button>
+          )}
+        </div>
+        <dl className="details-grid">
+          <Field label="Этап">
+            <span className={`badge badge-stage-${(client.stage ?? '').toLowerCase()}`}>
+              {stageLabel(client.stage)}
+            </span>
+          </Field>
+          <Field label="Ответственный">
+            {client.assigneeUsername ?? <span className="muted">не взят в работу</span>}
+          </Field>
+          <Field label="Следующий контакт">{client.nextContactAt ?? '—'}</Field>
+          <Field label="В сервисе с">
+            {client.createdAt ? new Date(client.createdAt).toLocaleDateString('ru-RU') : '—'}
+          </Field>
+        </dl>
+
+        {stageOptions.length > 0 && (
+          <div className="work-controls">
+            <select value={stageDraft} onChange={(e) => setStageDraft(e.target.value)}>
+              <option value="">— сменить этап —</option>
+              {stageOptions.map((s) => (
+                <option key={s.value} value={s.value}>{s.label}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="btn"
+              disabled={busy || !stageDraft}
+              onClick={() =>
+                run(async () => {
+                  await updateStage(client.id, { stage: stageDraft });
+                  setStageDraft('');
+                })
+              }
+            >
+              Сменить этап
+            </button>
+            {isAdmin && users && (
+              <>
+                <select
+                  value={assigneeDraft}
+                  onChange={(e) => setAssigneeDraft(e.target.value)}
+                  title="Переназначение ответственного"
+                >
+                  <option value="">— ответственный —</option>
+                  {users.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.username} ({u.role === 'ADMIN' ? 'админ' : 'оператор'})
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={busy || !assigneeDraft}
+                  onClick={() =>
+                    run(async () => {
+                      await updateAssignment(client.id, { assigneeId: Number(assigneeDraft) });
+                      setAssigneeDraft('');
+                    })
+                  }
+                >
+                  Назначить
+                </button>
+                {client.assigneeId != null && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    disabled={busy}
+                    onClick={() => run(() => updateAssignment(client.id, { assigneeId: null }))}
+                  >
+                    Освободить
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        )}
+        {client.assigneeId != null && !isAdmin && !ownClient && (
+          <p className="hint">Клиент у другого оператора — смену этапа и переназначение делает администратор.</p>
+        )}
+      </section>
 
       <section className="card">
         <h2>Основное</h2>
@@ -131,6 +281,23 @@ export default function ClientCardPage() {
             {client.contactEmail ? <a href={`mailto:${client.contactEmail}`}>{client.contactEmail}</a> : '—'}
           </Field>
         </dl>
+      </section>
+
+      <section className="card">
+        <h2>История работы</h2>
+        <EventForm
+          clientId={client.id}
+          client={client}
+          isAdmin={isAdmin}
+          currentUserId={user?.id ?? null}
+          onCreated={onEventCreated}
+        />
+        <HistoryFeed clientId={client.id} version={eventsVersion} />
+      </section>
+
+      <section className="card">
+        <h2>Претензии и санкции</h2>
+        <ClaimsSection clientId={client.id} isAdmin={isAdmin} version={eventsVersion} />
       </section>
 
       <section className="card">

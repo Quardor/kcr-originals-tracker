@@ -8,6 +8,7 @@ import ClientsPage from './pages/ClientsPage';
 import ImportPage from './pages/ImportPage';
 import LoginPage from './pages/LoginPage';
 import NotFoundPage from './pages/NotFoundPage';
+import TodayPage from './pages/TodayPage';
 
 export default function App() {
   return (
@@ -27,6 +28,7 @@ export default function App() {
           >
             <Route index element={<Navigate to="/clients" replace />} />
             <Route path="clients" element={<ClientsPage />} />
+            <Route path="today" element={<TodayPage />} />
             <Route
               path="clients/new"
               element={
