@@ -73,12 +73,13 @@ function FilePicker({ file, onFile }) {
 
 /**
  * Общая логика секции импорта: выбранный файл → предпросмотр (без записи) → применение.
- * Смена файла сбрасывает результаты — применять можно только просмотренный файл.
+ * Смена файла или параметров сбрасывает результаты — применять можно только просмотренный файл.
  */
 function ImportSection({
   title,
   description,
   withDate = false,
+  withPeriod = false,
   onPreview,
   onApply,
   renderPreview,
@@ -86,15 +87,20 @@ function ImportSection({
 }) {
   const [file, setFile] = useState(null);
   const [snapshotDate, setSnapshotDate] = useState('');
+  const [reportingPeriod, setReportingPeriod] = useState('');
   const [preview, setPreview] = useState(null);
   const [report, setReport] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(null);
 
-  const changeFile = (nextFile) => {
-    setFile(nextFile);
+  const resetResults = () => {
     setPreview(null);
     setReport(null);
+  };
+
+  const changeFile = (nextFile) => {
+    setFile(nextFile);
+    resetResults();
     setError(nextFile && nextFile.size > MAX_FILE_SIZE ? 'Файл больше 10 МБ' : null);
   };
 
@@ -112,13 +118,17 @@ function ImportSection({
       setError('Укажите дату среза');
       return;
     }
+    if (withPeriod && !reportingPeriod.trim()) {
+      setError('Укажите отчётный период (как называется лист в файле, например «1 кв 2026»)');
+      return;
+    }
     setBusy(kind);
     try {
       if (kind === 'preview') {
-        setPreview(await onPreview(file, snapshotDate));
+        setPreview(await onPreview(file, snapshotDate, reportingPeriod.trim()));
         setReport(null);
       } else {
-        setReport(await onApply(file, snapshotDate));
+        setReport(await onApply(file, snapshotDate, reportingPeriod.trim()));
         setPreview(null);
       }
     } catch (err) {
@@ -135,6 +145,20 @@ function ImportSection({
 
       <div className="import-controls">
         <FilePicker file={file} onFile={changeFile} />
+        {withPeriod && (
+          <label className="field field-inline">
+            <span>Отчётный период</span>
+            <input
+              type="text"
+              value={reportingPeriod}
+              placeholder="1 кв 2026"
+              onChange={(e) => {
+                setReportingPeriod(e.target.value);
+                resetResults();
+              }}
+            />
+          </label>
+        )}
         {withDate && (
           <label className="field field-inline">
             <span>Дата среза</span>
@@ -143,8 +167,7 @@ function ImportSection({
               value={snapshotDate}
               onChange={(e) => {
                 setSnapshotDate(e.target.value);
-                setPreview(null);
-                setReport(null);
+                resetResults();
               }}
             />
           </label>
@@ -222,15 +245,21 @@ export default function ImportPage() {
 
       <ImportSection
         title="Срезы передачи документов"
-        description="Файл срезов: один лист — один отчётный период (имя листа), дата среза задаётся отдельно."
+        description="Выберите отчётный период и дату среза: импортируются листы файла, чьё имя совпадает с периодом; остальные листы пропускаются."
         withDate
-        onPreview={(file, date) => previewSnapshotsImport(file, date)}
-        onApply={(file, date) => applySnapshotsImport(file, date)}
+        withPeriod
+        onPreview={(file, date, period) => previewSnapshotsImport(file, date, period)}
+        onApply={(file, date, period) => applySnapshotsImport(file, date, period)}
         renderPreview={(p) => (
           <div className="import-result">
             <h3>Предпросмотр</h3>
             <p>
               Срезов к записи: <strong>{p.rows.length}</strong>
+              {p.skippedSheets.length > 0 && (
+                <>
+                  , пропущено листов других периодов: <strong>{p.skippedSheets.length}</strong>
+                </>
+              )}
               {p.unmatchedKcrCodes.length > 0 && (
                 <>
                   , кодов без клиента в базе: <strong>{p.unmatchedKcrCodes.length}</strong>
@@ -269,6 +298,7 @@ export default function ImportPage() {
                 </table>
               </div>
             )}
+            <CodesList title="Пропущены листы других периодов" codes={p.skippedSheets} />
             <CodesList title="Коды без клиента" codes={p.unmatchedKcrCodes} />
             <IssuesTable issues={p.issues} />
           </div>
@@ -278,6 +308,11 @@ export default function ImportPage() {
             <h3>Готово</h3>
             <p>
               Записано срезов: <strong>{r.created}</strong>
+              {r.skippedSheets.length > 0 && (
+                <>
+                  , пропущено листов других периодов: <strong>{r.skippedSheets.length}</strong>
+                </>
+              )}
               {r.unmatchedKcrCodes.length > 0 && (
                 <>
                   , кодов без клиента (пропущено): <strong>{r.unmatchedKcrCodes.length}</strong>
@@ -285,6 +320,7 @@ export default function ImportPage() {
               )}
               {r.issues.length > 0 && <> , строк с ошибками: <strong>{r.issues.length}</strong></>}
             </p>
+            <CodesList title="Пропущены листы других периодов" codes={r.skippedSheets} />
             <CodesList title="Коды без клиента" codes={r.unmatchedKcrCodes} />
             <IssuesTable issues={r.issues} />
           </div>

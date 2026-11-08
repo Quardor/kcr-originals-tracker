@@ -1,9 +1,12 @@
-package ru.quard0r.kcrbackend.dto.response;
+package ru.quard0r.kcrbackend.clients.dto;
 
 import lombok.Builder;
-import ru.quard0r.kcrbackend.model.Client;
-import ru.quard0r.kcrbackend.model.ClientType;
+import ru.quard0r.kcrbackend.clients.model.Client;
+import ru.quard0r.kcrbackend.clients.model.ClientType;
+import ru.quard0r.kcrbackend.clients.model.WorkStage;
 
+import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 
 @Builder
@@ -23,7 +26,12 @@ public record ClientResponse (
         List<String> flags,
         String contactPerson,
         String contactPhone,
-        String contactEmail
+        String contactEmail,
+        WorkStage stage,
+        Long assigneeId,
+        String assigneeUsername,
+        LocalDate nextContactAt,
+        Instant createdAt
 ){
     public static ClientResponse from(Client client) {
         return ClientResponse.builder()
@@ -43,6 +51,11 @@ public record ClientResponse (
                 .contactPerson(client.getContactPerson())
                 .contactPhone(client.getContactPhone())
                 .contactEmail(client.getContactEmail())
+                .stage(client.getStage())
+                .assigneeId(client.getAssignee() == null ? null : client.getAssignee().getId())
+                .assigneeUsername(client.getAssignee() == null ? null : client.getAssignee().getUsername())
+                .nextContactAt(client.getNextContactAt())
+                .createdAt(client.getCreatedAt())
                 .build();
     }
 }

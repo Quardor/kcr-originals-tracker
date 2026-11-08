@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -15,6 +16,7 @@ import ru.quard0r.kcrbackend.imports.dto.ClientImportPreview;
 import ru.quard0r.kcrbackend.imports.dto.ClientImportReport;
 import ru.quard0r.kcrbackend.imports.dto.SnapshotImportPreview;
 import ru.quard0r.kcrbackend.imports.dto.SnapshotImportReport;
+import ru.quard0r.kcrbackend.security.CustomUserDetails;
 
 import java.time.LocalDate;
 
@@ -40,26 +42,32 @@ public class ImportController {
 
     @PostMapping("/clients")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<ClientImportReport> importClients(@RequestParam("file") MultipartFile file)
+    public ResponseEntity<ClientImportReport> importClients(
+            @RequestParam("file") MultipartFile file,
+            @AuthenticationPrincipal CustomUserDetails userDetails)
     {
-        return ResponseEntity.ok(clientUpsertService.apply(file));
+        return ResponseEntity.ok(clientUpsertService.apply(file, userDetails.user()));
     }
 
     @PostMapping("/snapshots/preview")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<SnapshotImportPreview> previewSnapshots(
             @RequestParam("file") MultipartFile file,
-            @RequestParam("snapshotDate") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate snapshotDate)
+            @RequestParam("snapshotDate") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate snapshotDate,
+            @RequestParam("reportingPeriod") String reportingPeriod)
     {
-        return ResponseEntity.ok(snapshotImportService.preview(file, snapshotDate));
+        return ResponseEntity.ok(snapshotImportService.preview(file, snapshotDate, reportingPeriod));
     }
 
     @PostMapping("/snapshots")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<SnapshotImportReport> importSnapshots(
             @RequestParam("file") MultipartFile file,
-            @RequestParam("snapshotDate") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate snapshotDate)
+            @RequestParam("snapshotDate") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate snapshotDate,
+            @RequestParam("reportingPeriod") String reportingPeriod,
+            @AuthenticationPrincipal CustomUserDetails userDetails)
     {
-        return ResponseEntity.ok(snapshotImportService.apply(file, snapshotDate));
+        return ResponseEntity.ok(snapshotImportService.apply(file, snapshotDate, reportingPeriod,
+                userDetails.user()));
     }
 }

@@ -50,26 +50,42 @@ ru.quard0r.kcrbackend
 ├── KcrBackendApplication   — точка входа (@SpringBootApplication)
 ├── bootstrap/              — инициализация при старте (AdminBootstrap — bootstrap первого
 │                             администратора и команда --create-admin, см. §5)
+├── clients/                — домен «клиенты» (feature-пакет §11.5, перенесён 2026-11-08):
+│                             ClientController — /api/v1/clients/** (карточки, фильтры,
+│                             take/assignment/stage, пагинация валидируется constraint-
+│                             аннотациями через PageLimits, п. 28 §10), WorklistController —
+│                             /api/v1/worklist/today («сегодня нужно»), ClientService,
+│                             StagePolicy — правила смены этапа по ролям (§11.2);
+│                             model/ — Client, ClientType, WorkStage; repository/ —
+│                             ClientRepository (в т.ч. условный UPDATE взятия); dto/ —
+│                             клиентские request/response (PATCH-семантика «null = не менять»,
+│                             нормализация в компакт-конструкторах до Bean Validation);
+│                             events/ — единая история и претензионная работа: ClientEvent,
+│                             Claim, Sanction + enum'ы ClientEventType/CallResult/ClaimStatus/
+│                             SanctionStatus, репозитории, ClientEventService (выдача истории
+│                             от новых к старым, ручные CALL/LETTER_SENT/COMMENT, системные
+│                             записи мутаций), ClaimService, ClientEventController
+│                             (/clients/{id}/events), ClaimController (claims/sanctions, §11.4),
+│                             dto/ — события и претензии
 ├── common/                 — общий код без зависимостей от слоёв: EmailNormalizer (email-поля
 │                             запросов, §5), KcrCodeNormalizer (канонический вид кода KCR, §4),
 │                             UserIdentityNormalizer (username/email — нижний регистр, §5),
-│                             PageLimits (максимальный размер страницы, §3/§11.4);
+│                             PageLimits + дженерик PageResponse (пагинация, §3/§11.4);
 │                             validation/ — доменные constraint-аннотации @Inn / @Kpp / @KcrCode
 │                             с валидаторами — единый источник правил формата для DTO и
 │                             Excel-парсеров (п. 29 §10)
-├── config/                 — конфигурация Spring (SecurityConfig: security-цепочка, CORS, бины)
-├── controller/             — REST-контроллеры (AuthController: /api/v1/auth/**,
-│                             ClientController: /api/v1/clients/**, пагинация валидируется
-│                             constraint-аннотациями через PageLimits, п. 28 §10)
+├── config/                 — конфигурация Spring (SecurityConfig: security-цепочка, CORS, бины;
+│                             JpaAuditingConfig — @CreatedDate, п. 24 §10)
+├── controller/             — REST-контроллеры вне доменных пакетов (AuthController:
+│                             /api/v1/auth/**, ImportController: /api/v1/import/**,
+│                             UserController: /api/v1/users — справочник для переназначения)
 ├── dto/
-│   ├── request/            — входные DTO (records: LoginRequest, RegisterRequest, RefreshRequest,
-│   │                         ClientCreateRequest, ClientUpdateRequest — PATCH-семантика «null = не менять»;
+│   ├── request/            — входные DTO (records: LoginRequest, RegisterRequest, RefreshRequest;
 │   │                         нормализация в компакт-конструкторах до Bean Validation: email-поля
 │   │                         через common/EmailNormalizer, username/email — через
-│   │                         common/UserIdentityNormalizer, kcrCode — через
-│   │                         common/KcrCodeNormalizer, см. §5/§4)
+│   │                         common/UserIdentityNormalizer, см. §5)
 │   └── response/           — исходящие DTO (records + @Builder: AuthResponse, ErrorResponse,
-│                             ClientResponse, SnapshotResponse, дженерик PageResponse)
+│                             SnapshotResponse, UserResponse)
 ├── exception/               — контракт ошибок (§6): ErrorCode — enum «код, HTTP-статус,
 │                             сообщение», DomainException — единственное доменное исключение,
 │                             GlobalExceptionHandler — маппинг в ErrorResponse, включая
@@ -80,12 +96,13 @@ ru.quard0r.kcrbackend
 │                             проверяются общими правилами common/validation; ExcelCells —
 │                             чтение ячеек, нормализация заголовков, поиск колонки кода KCR;
 │                             ParseResult/ParseIssue; dto/ (командные DTO + отчёты preview/apply);
-│                             ClientUpsertService / SnapshotImportService — upsert и применение;
+│                             ClientUpsertService / SnapshotImportService — upsert и применение
+│                             (записывают события IMPORT в историю, §11.2);
 │                             REST-эндпоинты — ImportController (§11.4, 2026-11-04)
-├── model/                  — JPA-сущности (User, RefreshToken, Client, DocumentTransferSnapshot)
-│                             + enum'ы (Role, ClientType)
+├── model/                  — JPA-сущности вне доменных пакетов (User, RefreshToken,
+│                             DocumentTransferSnapshot) + enum Role
 ├── repository/             — Spring Data JPA репозитории (UserRepository, RefreshTokenRepository,
-│                             ClientRepository, DocumentTransferSnapshotRepository)
+│                             DocumentTransferSnapshotRepository)
 ├── scheduling/             — фоновые задачи (RefreshTokenCleanupJob — ежедневная очистка
 │                             просроченных refresh-токенов, см. §5)
 ├── security/               — JWT-инфраструктура (JwtService — выдача access-токенов,
@@ -93,9 +110,9 @@ ru.quard0r.kcrbackend
 │                             аутентификация (Caffeine-кэш principal'ов),
 │                             CustomUserDetailsService, RestAuthenticationEntryPoint)
 │                             + AuthRateLimiter — антибрутфорс-лимитер login/register (см. §5)
-└── service/                — бизнес-логика (AuthService, RefreshTokenService,
-                              AccountLockoutService — счётчик неудачных входов и блокировка
-                              аккаунта, ClientService)
+└── service/                — бизнес-логика вне доменных пакетов (AuthService,
+                              RefreshTokenService, AccountLockoutService — счётчик неудачных
+                              входов и блокировка аккаунта)
 ```
 
 Направление зависимостей строго сверху вниз:
@@ -111,8 +128,8 @@ controller → service → repository → model
 
 ## 4. Доменная модель
 
-Раздел описывает реализованные сущности; целевые по ТЗ (этапы работы, события истории,
-претензии/санкции, категоризация динамики) — §11.
+Раздел описывает реализованные сущности; из целевых по ТЗ остаются нереализованными
+категоризация динамики срезов (§11.2, шаг 2 §11.8) и ИИ-помощник.
 
 ### User (`users`)
 | Поле | Тип | Ограничения |
@@ -169,10 +186,22 @@ Postgres не создаёт индексы на FK-колонки автома�
 | contactPerson | String | опционален — контактное лицо клиента |
 | contactPhone | String | опционален |
 | contactEmail | String | опционален |
+| stage | WorkStage | not null, default `NOT_IN_WORK` (`V8__client_work_fields.sql`) — этап работы, хранится отдельно от состояния передачи документов (прямое требование ТЗ); правила смены — `clients/StagePolicy` |
+| assignee | User | @ManyToOne LAZY, опционален — ответственный оператор; null = не взят в работу; индекс `idx_clients_assignee_id` |
+| nextContactAt | LocalDate | опционален — дата следующего контакта, обновляется событием звонка; частичный индекс `idx_clients_next_contact_at` под список «сегодня нужно» |
+| createdAt | Instant | not null — появление в сервисе (`@CreatedDate`, п. 24 §10), база правила «новичок < 6 месяцев» |
 
 ### ClientType (enum)
 `VIP`, `TECH_PARTNER`, `WORKS_VIA_MP`, `NEWCOMER`. Хранится именем значения
 (`@Enumerated(EnumType.STRING)`, varchar + CHECK — см. Role).
+
+### WorkStage (enum)
+`NOT_IN_WORK → IN_POOL → FIRST_CALL → WAITING_CLIENT_DEADLINE → RECHECK → SECOND_CALL →
+CLAIM_WORK → COMPLETED` (`V8`, varchar + CHECK). `IN_POOL` — администратор отобрал клиента
+в общий пул, оператор ещё не взял. Порядок переходов не контролируется (последовательность
+может отличаться по клиентам, §11.2); права на смену — по ролям: админ — любой этап, оператор —
+только рабочие (`isWorkStage()`: всё кроме `NOT_IN_WORK`/`IN_POOL`) и только своих клиентов
+(решение по вопросу 1 §11.7, 2026-11-08). Повторная установка того же этапа — no-op без события.
 
 ### DocumentTransferSnapshot (`document_transfer_snapshots`)
 Срез состояния передачи документов клиента: сколько документов клиент должен был передать за отчётный
@@ -201,6 +230,61 @@ Postgres не создаёт индексы на FK-колонки автома�
 snapshot_date)` покрывает выборку динамики по клиенту/периоду и поиск последнего среза для
 наследования total (индекс на FK создаётся явно — Postgres не строит их автоматически; то же
 для `refresh_tokens.user_id`, см. выше).
+
+### ClientEvent (`client_events`)
+Единая история клиента (сценарии 6, 9, 10, 12 ТЗ; `V9__client_event.sql`): любая мутация
+(звонок, письмо, комментарий, смена этапа, переназначение, загрузка данных, претензия,
+санкция) оставляет запись с датой, временем и автором. Одна широкая таблица с типом и
+nullable-полями; выдаётся хронологически от новых к старым (индекс
+`idx_client_events_client_created (client_id, created_at DESC, id DESC)`).
+
+| Поле | Тип | Ограничения |
+|---|---|---|
+| id | Long | PK, IDENTITY |
+| client | Client | @ManyToOne LAZY, not null |
+| author | User | @ManyToOne LAZY, not null — автор действия |
+| createdAt | Instant | not null (`@CreatedDate`), колонка `created_at` |
+| type | ClientEventType | not null, varchar + CHECK |
+| comment | String | text — общий для всех типов; автокомментарии системных событий на русском («Этап: X → Y», «Ответственный: A → B») |
+| callResult | CallResult | только для CALL (CHECK) |
+| agreement | String | text — договорённость, только для CALL |
+| clientDeadline | LocalDate | срок со стороны клиента, только для CALL |
+| nextContactAt | LocalDate | дата следующего контакта; CALL с этим полем обновляет `clients.next_contact_at` |
+| recordUrl | String | text — ссылка на запись разговора (CALL) |
+
+### ClientEventType (enum)
+`CALL`, `LETTER_SENT`, `COMMENT` — заводятся вручную через `POST /clients/{id}/events`
+(сервис отклоняет системные типы — `EVENT_TYPE_NOT_ALLOWED`); `STAGE_CHANGED`,
+`ASSIGNEE_CHANGED`, `IMPORT`, `CLAIM`, `SANCTION` — только сервисным слоем
+(`ClientEventService.record`) при соответствующих мутациях. Поля результата/договорённости/
+сроков/ссылки разрешены только CALL (`EVENT_FIELD_NOT_ALLOWED`), результат звонка обязателен
+(`CALL_RESULT_REQUIRED`); CALL с `stage` меняет этап по правилам StagePolicy и создаёт
+отдельное событие STAGE_CHANGED в той же транзакции.
+
+### CallResult (enum)
+`CONNECTED`, `NO_ANSWER`, `CALLBACK_LATER`, `WRONG_NUMBER` (принято 2026-11-08, вопрос 3 §11.7;
+содержательные детали — договорённость и сроки — несут поля события, а не значения перечисления).
+
+### Claim (`claims`) и Sanction (`sanctions`)
+Претензионная работа (`V10__claim_sanction.sql`, §11.4): претензии и санкции добавляет и
+меняет администратор, каждая мутация дублируется событием CLAIM/SANCTION в истории клиента
+(автокомментарии: «Претензия №ПР-1 зарегистрирована (статус NEW)», «…: статус NEW → SENT»,
+«Санкция «приостановка» по претензии №ПР-1: статус PLANNED → APPLIED»).
+
+Claim: id PK; client @ManyToOne not null (индекс `idx_claims_client_id`); `number`
+varchar(64) not null — внешний номер, иммутабелен; `claimDate` DATE not null;
+`incidentNumber` varchar(64) опционален; `receivedByClientAt` DATE опционален — дата
+получения клиентом; `status` ClaimStatus not null default `NEW`; `comment` text;
+`createdAt` Instant not null.
+
+Sanction: id PK; claim @ManyToOne not null (индекс `idx_sanctions_claim_id`); `name`
+varchar(128) not null — свободный текст (справочник доступных санкций не определён, §11.7);
+`status` SanctionStatus not null default `PLANNED`; `createdAt` Instant not null.
+
+### ClaimStatus / SanctionStatus (enum'ы)
+ClaimStatus: `NEW`, `SENT`, `RECEIVED`, `SATISFIED`, `CANCELLED`; SanctionStatus: `PLANNED`,
+`APPLIED`, `CANCELLED` (наборы приняты 2026-11-08, вопрос 3 §11.7; расширение — миграцией
+CHECK-констрейнта). Хранятся varchar + CHECK, PATCH-семантика «null = не менять».
 
 ## 5. Аутентификация (JWT)
 
@@ -399,7 +483,9 @@ HTTP-статус и сообщение по умолчанию, имя конс
 - `application.yaml` — общая часть: имя приложения, JPA (`ddl-auto=validate`, OSIV выключен),
   сроки токенов; `spring.profiles.default=dev` — без явного профиля (`bootRun`, тесты)
   активен `dev`.
-- `application-dev.yaml` — локальная БД (`jdbc:postgresql://localhost:5432/postgres`,
+- `application-dev.yaml` — локальная БД (с 2026-11-08 — контейнер `kcr-backend-db` compose-стенда:
+`jdbc:postgresql://localhost:5433/kcr`, пользователь `kcr`; ранее — отдельный контейнер
+`postgres` на 5432),
   пользователь по умолчанию `myuser`); секреты — из окружения либо `.env` (см. ниже).
 - `application-prod.yaml` — подключение (`DB_URL`, `DB_USERNAME`, `DB_PASSWORD`) и
   `JWT_SECRET` строго из окружения, значений по умолчанию нет: при незаданных переменных
@@ -444,7 +530,7 @@ HTTP-статус и сообщение по умолчанию, имя конс
 # из каталога server/kcr-backend
 ./gradlew build          # сборка + тесты
 ./gradlew test           # только тесты
-./gradlew bootRun        # запуск приложения (нужны PostgreSQL на localhost:5432 и .env, см. §7)
+./gradlew bootRun        # запуск приложения (нужны PostgreSQL из compose-стенда — localhost:5433 — и .env, см. §7)
 
 # одноразовое создание администратора из ADMIN_USERNAME/ADMIN_PASSWORD (см. §5);
 # приложение завершается после создания; при работающем инстансе добавить
@@ -453,7 +539,7 @@ HTTP-статус и сообщение по умолчанию, имя конс
 java -jar build/libs/kcr-backend-0.0.1-SNAPSHOT.jar --create-admin
 ```
 
-## 9. Текущее состояние (актуально на 2026-11-03)
+## 9. Текущее состояние (актуально на 2026-11-08)
 
 Готово:
 - каркас приложения, SecurityConfig (stateless JWT, `/api/auth/**` публичные), JWT-инфраструктура
@@ -740,6 +826,57 @@ java -jar build/libs/kcr-backend-0.0.1-SNAPSHOT.jar --create-admin
   (`page=-1`/`size=101` → 400, `size=100` → 200, ИНН 10 цифр POST/PATCH, код KCR
   нормализуется/отвергается); `./gradlew build` проходит (101 тест).
 
+- фильтр импорта срезов по отчётному периоду (2026-11-08, ветка `feature/operator-cycle`):
+  `reportingPeriod` — обязательный параметр preview/apply срезов; импортируются только листы,
+  чьё имя совпадает с выбранным периодом (регистр/пробелы/ё не значимы), многопериодная
+  выгрузка грузится по одному периоду за раз; листы других периодов с данными попадают в
+  `skippedSheets` отчётов; ни одного совпадения → 400 `IMPORT_PERIOD_NOT_FOUND`; фронтенд —
+  поле периода на странице импорта, сброс результатов при смене параметров; тесты
+  (`SnapshotExcelParserTest` 12, интеграционные) зелёные (108 тестов).
+
+- переход на package-by-feature для домена «клиенты» (2026-11-08, закрыт вопрос 6 §11.7):
+  `clients/` — ClientController, WorklistController, ClientService, StagePolicy, model/
+  (Client, ClientType, WorkStage), repository/, dto/, events/ (история + претензии);
+  `PageResponse` переехал в `common/`; snapshot-домен остался слоёным до шага «Динамика»
+  (перенос `auth` — отдельный рефакторинг). Dev-профиль переведён на БД compose-стенда
+  (`kcr-backend-db`, localhost:5433/kcr).
+
+- **операторский цикл** — шаги 1 и 5 §11.8 + события IMPORT из хвоста шага 3 (2026-11-08,
+  ветка `feature/operator-cycle`, «Блок А» MVP-критериев 7–13):
+  - `V8__client_work_fields.sql`: `clients.stage` (WorkStage, default NOT_IN_WORK),
+    `assignee_id` FK users, `next_contact_at` DATE, `created_at` timestamptz not null
+    (backfill моментом миграции); индексы по assignee и частичный по next_contact_at;
+    аудит — `JpaAuditingConfig` + `@CreatedDate` + `@EntityListeners` (закрыта оставшаяся
+    часть п. 24 §10);
+  - `V9__client_event.sql`: `client_events` — единая история с автором и временем
+    (§4); ручные CALL/LETTER_SENT/COMMENT (`POST /api/v1/clients/{id}/events`: CALL требует
+    `callResult`, call-only поля отвергаются для других типов, системные типы — только
+    сервисом), звонок обновляет `clients.next_contact_at` и может сменить этап (отдельное
+    событие STAGE_CHANGED в той же транзакции); `GET` — от новых к старым, пагинация;
+  - `V10__claim_sanction.sql`: претензии и санкции (§4), мутации — админ, дублирование
+    CLAIM/SANCTION-событиями; чтение — `GET /api/v1/clients/{id}/claims` (обе роли);
+  - атомарное взятие — условный bulk-UPDATE `assignAssigneeIfFree` (`WHERE assignee_id IS
+    NULL`, §11.2), гонка покрыта тестом; `PATCH /assignment` (админ; `assigneeId: null` —
+    освободить, одноцелевая семантика — не null-skip), `PATCH /stage` по правилам StagePolicy
+    (решение по вопросу 1 §11.7), `GET /api/v1/worklist/today` (оператору — свои, админу — все),
+    фильтры `stage`/`assigneeId`/`unassigned` и сортировка по stage/nextContactAt в списке
+    клиентов; `GET /api/v1/users` (админ) — справочник для переназначения;
+  - события IMPORT: обе apply-операции импорта пишут по событию на затронутого клиента
+    («Импорт клиентов: создан/обновлён», «Импорт срезов (период, срез): не передано N»),
+    автор — загружающий админ; пересчёт категорий остаётся шагу «Динамика»;
+  - фронтенд `client/kcr-frontend`: страница «Сегодня» (/today), блок работы в карточке
+    (взять/этап/переназначение), лента истории + форма события (звонок с результатом,
+    договорённостью, сроками, ссылкой на запись и сменой этапа), претензии/санкции, фильтры
+    этапа и ответственного в списке, русские подписи справочников (`src/labels.js`);
+  - справочники CallResult/ClaimStatus/SanctionStatus приняты (закрыт вопрос 3 §11.7);
+    новые коды ошибок: `CLIENT_ALREADY_TAKEN`, `USER_NOT_FOUND`, `STAGE_CHANGE_FORBIDDEN`,
+    `EVENT_TYPE_NOT_ALLOWED`, `EVENT_FIELD_NOT_ALLOWED`, `CALL_RESULT_REQUIRED`,
+    `CLAIM_NOT_FOUND`, `SANCTION_NOT_FOUND`;
+  - тесты: `ClientEventServiceTest` (9), `ClaimServiceTest` (8), `ClientServiceTest` +
+    10 (take/assignment/stage), `OperatorCycleIntegrationTest` (2, включая гонку взятия),
+    `ClaimApiIntegrationTest`, IMPORT-события в `ImportApiIntegrationTest`, справочник
+    пользователей; `./gradlew build` проходит (139 тестов).
+
 Выявленные проблемы и требуемые изменения собраны в §10 (архитектурные ревью 2026-10-24
 и 2026-10-29); ранее перечислявшиеся здесь «известные особенности» включены туда.
 
@@ -921,7 +1058,7 @@ java -jar build/libs/kcr-backend-0.0.1-SNAPSHOT.jar --create-admin
 
 ### 11.3. Целевая модель данных
 
-Доработка `clients` (миграция `V5__client_work_fields.sql`):
+Доработка `clients` (миграция `V8__client_work_fields.sql`, реализовано 2026-11-08):
 
 | Поле | Тип | Назначение |
 |---|---|---|
@@ -930,16 +1067,16 @@ java -jar build/libs/kcr-backend-0.0.1-SNAPSHOT.jar --create-admin
 | next_contact_at | DATE, nullable | следующий контакт (обновляется событием звонка) |
 | created_at | TIMESTAMP, not null | появление в сервисе — база правила «новичок < 6 месяцев» |
 
-Доработка `document_transfer_snapshots` (`V6__snapshot_dynamics.sql`):
+Доработка `document_transfer_snapshots` (запланированная `V11__snapshot_dynamics.sql`, шаг 2 §11.8;
+номера V5–V7 заняты миграциями auth, имена §11.3 перенумерованы 2026-11-08):
 
 | Поле | Тип | Назначение |
 |---|---|---|
 | dynamics_category | enum `DynamicsCategory`, nullable | категория динамики, вычисляется при импорте |
 | previous_not_transferred | INT, nullable | значение предыдущего среза («изменение») — денормализация под списки |
 
-Новая сущность `client_events` (`V7__client_event.sql`) — единая история клиента (сценарии 6,
-9, 10, 12 ТЗ). Одна широкая таблица с типом и nullable-полями; JOIN-наследование подтипов —
-при необходимости позже:
+Новая сущность `client_events` (реализована миграцией `V9__client_event.sql`, 2026-11-08) —
+единая история клиента (сценарии 6, 9, 10, 12 ТЗ), см. §4:
 
 | Поле | Тип |
 |---|---|
@@ -952,10 +1089,11 @@ java -jar build/libs/kcr-backend-0.0.1-SNAPSHOT.jar --create-admin
 | next_contact_at | DATE — дата следующего контакта |
 | record_url | ссылка на запись разговора |
 
-Новые сущности `claims` (`V8__claim.sql`) и `sanctions`: претензия — client FK, номер, дата,
-номер связанного инцидента, дата получения клиентом, статус `ClaimStatus`, комментарий; санкция —
-claim FK, название, статус применения `SanctionStatus`. Мутации претензий и санкций дублируются
-событиями `CLAIM`/`SANCTION` в общей истории клиента.
+Новые сущности `claims` и `sanctions` (реализованы миграцией `V10__claim_sanction.sql`,
+2026-11-08, см. §4): претензия — client FK, номер, дата, номер связанного инцидента, дата
+получения клиентом, статус `ClaimStatus`, комментарий; санкция — claim FK, название, статус
+применения `SanctionStatus`. Мутации претензий и санкций дублируются событиями
+`CLAIM`/`SANCTION` в общей истории клиента.
 
 `letter_templates` в MVP не включается (§11.1); при появлении — тривиальная таблица, модель
 не меняет.
@@ -963,48 +1101,53 @@ claim FK, название, статус применения `SanctionStatus`. 
 Enum'ы — все `@Enumerated(STRING)`, varchar + CHECK по списку значений (как `ClientType`):
 `WorkStage` (`NOT_IN_WORK → IN_POOL → FIRST_CALL → WAITING_CLIENT_DEADLINE → RECHECK →
 SECOND_CALL → CLAIM_WORK → COMPLETED`; `IN_POOL` — «администратор отобрал в общий пул, оператор
-ещё не взял»; набор предварительный — вопрос 1 §11.7), `DynamicsCategory` (§11.2),
-`ClientEventType`, `CallResult`, `ClaimStatus`, `SanctionStatus` (справочники — §11.7).
+ещё не взял»; набор принят, правила смены — по ролям, см. §4), `DynamicsCategory` (§11.2,
+остаётся шагу 2), `ClientEventType`, `CallResult`, `ClaimStatus`, `SanctionStatus` (справочники
+приняты 2026-11-08, см. §4).
 
 ### 11.4. План REST API
 
 Префикс `/api/v1/**` (введён 2026-10-27 до первого предметного эндпоинта; `/api/auth` перенесён
 в `/api/v1/auth`).
 
-Клиенты и работа с ними:
+Клиенты и работа с ними (пункты без пометки реализованы 2026-11-08, ветка
+`feature/operator-cycle`):
 
 | Метод и путь | Роль | Назначение |
 |---|---|---|
-| `GET /api/v1/clients` (расширение фильтров) | обе | фильтры ТЗ поверх базиса (поиск по коду KCR/ИНН, `clientType`, `kcrActive`, `kcrBlocked`, `flag` реализованы): состояние передачи, количество/доля непереданных, этап, наличие претензии, ответственный, отчётный период, новое/повторное появление — по мере появления полей V5/V6/V8 |
+| `GET /api/v1/clients` (расширение фильтров) | обе | фильтры ТЗ поверх базиса (поиск по коду KCR/ИНН, `clientType`, `kcrActive`, `kcrBlocked`, `flag`, `stage`, `assigneeId`, `unassigned` — реализованы): состояние передачи, количество/доля непереданных, наличие претензии, отчётный период, новое/повторное появление — по мере появления полей динамики (`V11`) |
 | `GET /api/v1/clients/{id}/events` | обе | история, новые → старые, пагинация |
 | `POST /api/v1/clients/{id}/events` | обе | создать событие (звонок/комментарий/письмо); `CALL` обновляет `next_contact_at` и, при указании, stage |
-| `POST /api/v1/clients/{id}/take` | оператор | атомарно взять свободного клиента |
+| `POST /api/v1/clients/{id}/take` | оператор | атомарно взять свободного клиента (админ наследует возможность оператора, §11.1) |
 | `PATCH /api/v1/clients/{id}/assignment` | админ | переназначить/освободить ответственного |
-| `PATCH /api/v1/clients/{id}/stage` | админ; оператор — по правилам этапов | смена этапа; создаёт событие |
-| `GET /api/v1/clients/{id}/brief` | обе | краткая сводка перед звонком |
+| `PATCH /api/v1/clients/{id}/stage` | админ; оператор — по правилам этапов (`StagePolicy`) | смена этапа; создаёт событие |
+| `GET /api/v1/clients/{id}/brief` | обе | краткая сводка перед звонком — вместе с ИИ-помощником (шаг 6 §11.8) |
+| `GET /api/v1/clients/{id}/claims` | обе | претензии клиента с вложенными санкциями (для карточки) |
+| `GET /api/v1/users` | админ | справочник пользователей для переназначения |
 
 Рабочие списки и статистика:
 
 | Метод и путь | Назначение |
 |---|---|
-| `GET /api/v1/worklist/available` | свободные клиенты из пула — для операторов |
+| `GET /api/v1/worklist/available` | свободные клиенты из пула — для операторов (шаг 4 §11.8) |
 | `GET /api/v1/worklist/today` | «сегодня нужно»: `next_contact_at <= сегодня`; оператору — свои, админу — все |
-| `POST /api/v1/worklist` | админ: перевести отобранных клиентов в пул (`IN_POOL`) — после фильтров или ИИ-выборки |
-| `GET /api/v1/stats/summary` | счётчики по категориям динамики |
+| `POST /api/v1/worklist` | админ: перевести отобранных клиентов в пул (`IN_POOL`) — после фильтров или ИИ-выборки (шаг 4 §11.8) |
+| `GET /api/v1/stats/summary` | счётчики по категориям динамики (шаг 4 §11.8) |
 
 Импорт (Excel, multipart, Apache POI; парсеры-адаптеры — §9, upsert-сервисы и эндпоинты —
-2026-11-04; события `IMPORT` и пересчёт категорий — с `V6`/`client_events`):
+2026-11-04; события `IMPORT` реализованы 2026-11-08; пересчёт категорий — с динамикой,
+шаг 2 §11.8):
 
 | Метод и путь | Назначение |
 |---|---|
 | `POST /api/v1/import/clients/preview` | валидация без записи: обязательные колонки, форматы, дубли кода KCR в файле → ошибка с указанием причины, diff новых/обновляемых |
-| `POST /api/v1/import/clients` | применение; отчёт: создано / обновлено / строки с ошибками |
-| `POST /api/v1/import/snapshots/preview` | валидация: сопоставление по коду KCR, дубли, согласованность счётчиков, наследование `total_documents` |
-| `POST /api/v1/import/snapshots` | применение; несопоставленные коды — в JSON-отчёте (скачиваемый файл отложен); после записи — пересчёт категорий; загрузка создаёт события `IMPORT` |
+| `POST /api/v1/import/clients` | применение; отчёт: создано / обновлено / строки с ошибками; событие `IMPORT` на каждого затронутого клиента |
+| `POST /api/v1/import/snapshots/preview` | валидация: выбранный отчётный период, сопоставление по коду KCR, дубли, согласованность счётчиков, наследование `total_documents` |
+| `POST /api/v1/import/snapshots` | применение; несопоставленные коды — в JSON-отчёте (скачиваемый файл отложен); событие `IMPORT` на каждый созданный срез; после записи — пересчёт категорий (шаг 2) |
 
-Претензии (админ): `POST /api/v1/clients/{id}/claims`, `PATCH /api/v1/claims/{id}`,
-`POST /api/v1/claims/{id}/sanctions`, `PATCH /api/v1/sanctions/{id}` — мутации дублируются
-в историю клиента.
+Претензии (реализовано 2026-11-08): `POST /api/v1/clients/{id}/claims`, `PATCH /api/v1/claims/{id}`,
+`POST /api/v1/claims/{id}/sanctions`, `PATCH /api/v1/sanctions/{id}` (мутации — админ,
+дублируются в историю клиента) и `GET /api/v1/clients/{id}/claims` (обе роли).
 
 ИИ-помощник (read-only): `POST /api/v1/ai/questions` — вопрос на естественном языке, ответ строго
 по данным сервиса; `POST /api/v1/ai/prioritize` — приоритетная выборка по критериям, только
@@ -1014,8 +1157,9 @@ SECOND_CALL → CLAIM_WORK → COMPLETED`; `IN_POOL` — «администра�
 ### 11.5. Целевая структура пакетов
 
 По п. 26 §10 при появлении второго домена — переход на package-by-feature (импорт, события,
-претензии, ИИ — отдельные домены). Новые домены заводятся сразу по feature-принципу, перенос
-`auth` — отдельным рефакторингом. Правила слоёв внутри пакетов не меняются (§3):
+претензии, ИИ — отдельные домены). Домен «клиенты» переведён 2026-11-08 (`clients/` с
+`events/`, вопрос 6 §11.7 закрыт); перенос `auth` — отдельным рефакторингом; `snapshots/`
+отделятся на шаге «Динамика». Правила слоёв внутри пакетов не меняются (§3):
 
 ```
 ru.quard0r.kcrbackend
@@ -1044,11 +1188,17 @@ ru.quard0r.kcrbackend
 
 ### 11.7. Открытые вопросы к заказчику
 
-1. Точный список этапов работы и допустимые переходы — набор `WorkStage` в §11.3 предварительный.
+1. ~~Точный список этапов работы и допустимые переходы — набор `WorkStage` в §11.3
+   предварительный.~~ Решение по проекту 2026-11-08: набор принят, порядок переходов не
+   контролируется (последовательность отличается по клиентам, §11.2); права — по ролям
+   (`StagePolicy`): админ — любой этап, оператор — рабочие этапы своих клиентов.
+   Уточнение списка у заказчика остаётся открытым в части формулировок.
 2. «Новичок»: подтверждение расчёта по дате появления в сервисе (6 месяцев) и его сверка с типом
-   `NEWCOMER` из выгрузки.
-3. Справочники: результаты звонка (`CallResult`), статусы претензии (`ClaimStatus`), доступные
-   санкции и статусы их применения (`SanctionStatus`).
+   `NEWCOMER` из выгрузки (база — `clients.created_at`, реализовано в V8; правило — шаг 2).
+3. ~~Справочники: результаты звонка (`CallResult`), статусы претензии (`ClaimStatus`), доступные
+   санкции и статусы их применения (`SanctionStatus`).~~ Наборы приняты 2026-11-08 (§4);
+   расширение — миграцией CHECK-констрейнта. Справочник доступных санкций (названия) не
+   определён — название санкции свободный текст.
 4. Формат Excel-шаблонов импорта клиентов и срезов, включая исторические данные (заказчик
    приводит их к единому формату). Частично закрыт 2026-10-27 парсерами по реальным выгрузкам
    Дубны (§9): заголовок в строке 2; у клиентов коды лежат в колонке A без заголовка при пустой
@@ -1059,27 +1209,31 @@ ru.quard0r.kcrbackend
    исторические данные.
 5. ИИ-помощник: где живёт LLM (прокси-эндпоинт бекенда с ключом из окружения или отдельный сервис
    в `ml/` монорепо), модель и бюджет; состав контрольных сценариев приёмки.
-6. (решение по проекту, не заказчику) Переход на package-by-feature (§11.5).
+6. ~~(решение по проекту, не заказчику) Переход на package-by-feature (§11.5).~~ Выполнен
+   2026-11-08 для домена «клиенты» (`clients/` + `clients/events/`); `auth` и `snapshots` —
+   позже.
 
 ### 11.8. Порядок внедрения
 
-0. **Предпосылки из §10**, критичные для ТЗ-функционала: осталась часть п. 24 — аудит-поля
-   (`@EnableJpaAuditing`, `@CreatedDate`: `clients.created_at` — база правила «новичок»; входит
-   в `V5` следующего шага). Пп. 7, 11 и префикс п. 22 закрыты 2026-10-27 вместе с CRUD клиентов.
-1. **Операторский цикл**: `V5` (поля процесса) + `V7` (`client_events`); создание и выдача
-   событий (звонок обновляет `next_contact_at`/stage), `take`/`assignment`/`stage` с
-   атомарностью взятия, `GET /worklist/today`.
-2. **Динамика** (`V6`): сервис категоризации срезов, `previous_not_transferred`, фильтры
-   по динамике в списке.
+0. **Предпосылки из §10**, критичные для ТЗ-функционала: ~~осталась часть п. 24 — аудит-поля
+   (`@EnableJpaAuditing`, `@CreatedDate`: `clients.created_at` — база правила «новичок»;
+   входит в `V5` следующего шага)~~ — закрыто 2026-11-08 (`JpaAuditingConfig`, V8).
+   Пп. 7, 11 и префикс п. 22 закрыты 2026-10-27 вместе с CRUD клиентов.
+1. **Операторский цикл** — ✅ готово (2026-11-08, ветка `feature/operator-cycle`, §9):
+   `V8` (поля процесса) + `V9` (`client_events`); создание и выдача событий (звонок обновляет
+   `next_contact_at`/stage), `take`/`assignment`/`stage` с атомарностью взятия,
+   `GET /worklist/today`; фронтенд — «Сегодня», карточка с историей и претензиями.
+2. **Динамика** (запланированная `V11`): сервис категоризации срезов,
+   `previous_not_transferred`, фильтры по динамике в списке.
 3. **Excel-импорт**: парсеры-адаптеры клиентов и срезов (2026-10-27, пакет `imports`,
    §9); upsert-сервисы (`ClientUpsertService` — upsert по коду KCR без удаления отсутствующих,
    patch-семантика обновления; `SnapshotImportService` — наследование `total_documents`,
    несопоставленные коды в отчёте) и эндпоинты preview/применение с отчётами (`ImportController`,
-   §11.4) — 2026-11-04, ветка `feature/client`. Осталось: пересчёт категорий и события
-   `IMPORT` — вместе с `V6`/`client_events` (пп. 1–2).
+   §11.4) — 2026-11-04, ветка `feature/client`; фильтр по отчётному периоду — 2026-11-08.
+   Осталось: пересчёт категорий — вместе с динамикой (п. 2); события `IMPORT` — ✅ 2026-11-08.
 4. **Пул и статистика**: `POST /worklist` (перевод в `IN_POOL`), `GET /worklist/available`,
    `GET /stats/summary`.
-5. **Претензии и санкции** (`V8`) + API.
+5. **Претензии и санкции** — ✅ готово (`V10` + API, 2026-11-08, вместе с п. 1).
 6. **ИИ-помощник**: read-only фасад (`brief`, `questions`, `prioritize`), интеграция LLM,
    контрольные сценарии.
 

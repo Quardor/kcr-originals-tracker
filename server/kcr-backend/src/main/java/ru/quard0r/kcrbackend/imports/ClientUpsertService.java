@@ -9,9 +9,12 @@ import ru.quard0r.kcrbackend.exception.ErrorCode;
 import ru.quard0r.kcrbackend.imports.dto.ClientImportPreview;
 import ru.quard0r.kcrbackend.imports.dto.ClientImportReport;
 import ru.quard0r.kcrbackend.imports.dto.ClientImportRow;
+import ru.quard0r.kcrbackend.clients.events.ClientEventService;
+import ru.quard0r.kcrbackend.clients.events.ClientEventType;
+import ru.quard0r.kcrbackend.clients.model.Client;
+import ru.quard0r.kcrbackend.clients.repository.ClientRepository;
 import ru.quard0r.kcrbackend.imports.dto.ClientUpsertCommand;
-import ru.quard0r.kcrbackend.model.Client;
-import ru.quard0r.kcrbackend.repository.ClientRepository;
+import ru.quard0r.kcrbackend.model.User;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -25,13 +28,15 @@ import java.util.stream.Collectors;
  * KCR code, clients absent from the file are never touched. An update patches only the fields
  * present in the file — real exports omit the INN/name columns, which are NOT NULL in the
  * schema and must not be wiped. A new client without INN or organization name cannot be
- * created and is reported as a row issue.
+ * created and is reported as a row issue. Apply leaves an IMPORT event per touched client
+ * in the unified history (author — the uploading admin, §11.2).
  */
 @Service
 @RequiredArgsConstructor
 public class ClientUpsertService {
 
     private final ClientRepository clientRepository;
+    private final ClientEventService eventService;
     private final ClientExcelParser parser = new ClientExcelParser();
 
     public ClientImportPreview preview(MultipartFile file) {
@@ -58,7 +63,7 @@ public class ClientUpsertService {
     }
 
     @Transactional
-    public ClientImportReport apply(MultipartFile file) {
+    public ClientImportReport apply(MultipartFile file, User author) {
         ParseResult<ClientUpsertCommand> result = parse(file);
         Map<String, Client> existing = loadExisting(result.getCommands());
 
@@ -72,11 +77,13 @@ public class ClientUpsertService {
                     issues.add(missingCardIssue(command));
                     continue;
                 }
-                clientRepository.save(toNewClient(command));
+                client = clientRepository.save(toNewClient(command));
+                eventService.record(client, author, ClientEventType.IMPORT, "Импорт клиентов: создан");
                 created++;
             } else {
                 patch(client, command);
                 clientRepository.save(client);
+                eventService.record(client, author, ClientEventType.IMPORT, "Импорт клиентов: обновлён");
                 updated++;
             }
         }

@@ -21,6 +21,7 @@ export default function Layout() {
           </Link>
           <nav className="nav">
             <NavLink to="/clients">Клиенты</NavLink>
+            <NavLink to="/today">Сегодня</NavLink>
             {isAdmin && <NavLink to="/import">Импорт</NavLink>}
           </nav>
           <div className="header-user">

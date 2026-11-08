@@ -1,4 +1,4 @@
-package ru.quard0r.kcrbackend.service;
+package ru.quard0r.kcrbackend.clients;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -12,17 +12,25 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
-import ru.quard0r.kcrbackend.dto.request.ClientCreateRequest;
-import ru.quard0r.kcrbackend.dto.request.ClientUpdateRequest;
-import ru.quard0r.kcrbackend.dto.response.ClientResponse;
-import ru.quard0r.kcrbackend.dto.response.PageResponse;
+import ru.quard0r.kcrbackend.clients.dto.AssignmentUpdateRequest;
+import ru.quard0r.kcrbackend.clients.dto.ClientCreateRequest;
+import ru.quard0r.kcrbackend.clients.dto.ClientUpdateRequest;
+import ru.quard0r.kcrbackend.clients.dto.ClientResponse;
+import ru.quard0r.kcrbackend.clients.dto.StageUpdateRequest;
+import ru.quard0r.kcrbackend.clients.events.ClientEventService;
+import ru.quard0r.kcrbackend.clients.events.ClientEventType;
+import ru.quard0r.kcrbackend.clients.model.Client;
+import ru.quard0r.kcrbackend.clients.model.WorkStage;
+import ru.quard0r.kcrbackend.clients.repository.ClientRepository;
+import ru.quard0r.kcrbackend.common.PageResponse;
 import ru.quard0r.kcrbackend.dto.response.SnapshotResponse;
 import ru.quard0r.kcrbackend.exception.DomainException;
 import ru.quard0r.kcrbackend.exception.ErrorCode;
-import ru.quard0r.kcrbackend.model.Client;
 import ru.quard0r.kcrbackend.model.DocumentTransferSnapshot;
-import ru.quard0r.kcrbackend.repository.ClientRepository;
+import ru.quard0r.kcrbackend.model.Role;
+import ru.quard0r.kcrbackend.model.User;
 import ru.quard0r.kcrbackend.repository.DocumentTransferSnapshotRepository;
+import ru.quard0r.kcrbackend.repository.UserRepository;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -45,6 +53,12 @@ class ClientServiceTest {
     @Mock
     private DocumentTransferSnapshotRepository snapshotRepository;
 
+    @Mock
+    private UserRepository userRepository;
+
+    @Mock
+    private ClientEventService eventService;
+
     @InjectMocks
     private ClientService clientService;
 
@@ -54,6 +68,15 @@ class ClientServiceTest {
                 .kcrCode("ABC12345")
                 .inn("123456789012")
                 .organizationName("Organization")
+                .build();
+    }
+
+    private User user(long id, String username, Role role) {
+        return User.builder()
+                .id(id)
+                .username(username)
+                .password("password123")
+                .role(role)
                 .build();
     }
 
@@ -85,7 +108,7 @@ class ClientServiceTest {
                 .thenReturn(clients);
 
         PageResponse<ClientResponse> response = clientService.findClients(
-                "kcr", null, null, null, null, PageRequest.of(0, 20));
+                "kcr", null, null, null, null, null, null, null, PageRequest.of(0, 20));
 
         assertEquals(1, response.totalElements());
         assertEquals(1, response.totalPages());
@@ -216,5 +239,143 @@ class ClientServiceTest {
         assertThrows(DomainException.class, () -> clientService.update(42L, new ClientUpdateRequest(
                 null, null, "New Name", null, null, null, null, null,
                 null, null, null, null, null, null)));
+    }
+
+    @Test
+    void takeAssignsFreeClientAndRecordsEvent() {
+        User operator = user(7L, "operator", Role.OPERATOR);
+        Client assigned = client();
+        assigned.setAssignee(operator);
+        when(clientRepository.assignAssigneeIfFree(1L, 7L)).thenReturn(1);
+        when(clientRepository.findById(1L)).thenReturn(Optional.of(assigned));
+
+        ClientResponse response = clientService.take(1L, operator);
+
+        assertEquals(7L, response.assigneeId());
+        assertEquals("operator", response.assigneeUsername());
+        verify(eventService).record(assigned, operator, ClientEventType.ASSIGNEE_CHANGED,
+                "Взят в работу: operator");
+    }
+
+    @Test
+    void takeThrowsForClientTakenByAnotherOperator() {
+        when(clientRepository.assignAssigneeIfFree(1L, 7L)).thenReturn(0);
+        when(clientRepository.existsById(1L)).thenReturn(true);
+        User operator = user(7L, "operator", Role.OPERATOR);
+
+        DomainException exception = assertThrows(DomainException.class,
+                () -> clientService.take(1L, operator));
+        assertEquals(ErrorCode.CLIENT_ALREADY_TAKEN, exception.getErrorCode());
+        verify(eventService, never()).record(any(), any(), any(), any());
+    }
+
+    @Test
+    void takeThrowsForUnknownClient() {
+        when(clientRepository.assignAssigneeIfFree(42L, 7L)).thenReturn(0);
+        when(clientRepository.existsById(42L)).thenReturn(false);
+
+        DomainException exception = assertThrows(DomainException.class,
+                () -> clientService.take(42L, user(7L, "operator", Role.OPERATOR)));
+        assertEquals(ErrorCode.CLIENT_NOT_FOUND, exception.getErrorCode());
+    }
+
+    @Test
+    void updateAssignmentSetsAssigneeAndRecordsEvent() {
+        User admin = user(1L, "admin", Role.ADMIN);
+        User operator = user(7L, "operator", Role.OPERATOR);
+        Client client = client();
+        when(clientRepository.findById(1L)).thenReturn(Optional.of(client));
+        when(userRepository.findById(7L)).thenReturn(Optional.of(operator));
+        when(clientRepository.save(any(Client.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ClientResponse response = clientService.updateAssignment(1L,
+                new AssignmentUpdateRequest(7L), admin);
+
+        assertEquals(7L, response.assigneeId());
+        verify(eventService).record(client, admin, ClientEventType.ASSIGNEE_CHANGED,
+                "Ответственный: — → operator");
+    }
+
+    @Test
+    void updateAssignmentReleasesAssignee() {
+        User admin = user(1L, "admin", Role.ADMIN);
+        User operator = user(7L, "operator", Role.OPERATOR);
+        Client client = client();
+        client.setAssignee(operator);
+        when(clientRepository.findById(1L)).thenReturn(Optional.of(client));
+        when(clientRepository.save(any(Client.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ClientResponse response = clientService.updateAssignment(1L,
+                new AssignmentUpdateRequest(null), admin);
+
+        assertNull(response.assigneeId());
+        verify(eventService).record(client, admin, ClientEventType.ASSIGNEE_CHANGED,
+                "Ответственный: operator → освобождён");
+    }
+
+    @Test
+    void updateAssignmentThrowsForUnknownUser() {
+        when(clientRepository.findById(1L)).thenReturn(Optional.of(client()));
+        when(userRepository.findById(99L)).thenReturn(Optional.empty());
+
+        DomainException exception = assertThrows(DomainException.class, () -> clientService.updateAssignment(
+                1L, new AssignmentUpdateRequest(99L), user(1L, "admin", Role.ADMIN)));
+        assertEquals(ErrorCode.USER_NOT_FOUND, exception.getErrorCode());
+    }
+
+    @Test
+    void updateStageAllowsOperatorOnOwnClientForWorkStage() {
+        User operator = user(7L, "operator", Role.OPERATOR);
+        Client client = client();
+        client.setAssignee(operator);
+        when(clientRepository.findById(1L)).thenReturn(Optional.of(client));
+        when(clientRepository.save(any(Client.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ClientResponse response = clientService.updateStage(1L,
+                new StageUpdateRequest(WorkStage.FIRST_CALL, "дозвонились"), operator);
+
+        assertEquals(WorkStage.FIRST_CALL, response.stage());
+        verify(eventService).record(client, operator, ClientEventType.STAGE_CHANGED,
+                "Этап: NOT_IN_WORK → FIRST_CALL. дозвонились");
+    }
+
+    @Test
+    void updateStageForbidsOperatorOnForeignClient() {
+        User operator = user(7L, "operator", Role.OPERATOR);
+        Client client = client();
+        client.setAssignee(user(8L, "other", Role.OPERATOR));
+        when(clientRepository.findById(1L)).thenReturn(Optional.of(client));
+
+        DomainException exception = assertThrows(DomainException.class, () -> clientService.updateStage(
+                1L, new StageUpdateRequest(WorkStage.FIRST_CALL, null), operator));
+        assertEquals(ErrorCode.STAGE_CHANGE_FORBIDDEN, exception.getErrorCode());
+        verify(clientRepository, never()).save(any());
+    }
+
+    @Test
+    void updateStageForbidsOperatorPoolStages() {
+        User operator = user(7L, "operator", Role.OPERATOR);
+        Client client = client();
+        client.setAssignee(operator);
+        when(clientRepository.findById(1L)).thenReturn(Optional.of(client));
+
+        DomainException exception = assertThrows(DomainException.class, () -> clientService.updateStage(
+                1L, new StageUpdateRequest(WorkStage.IN_POOL, null), operator));
+        assertEquals(ErrorCode.STAGE_CHANGE_FORBIDDEN, exception.getErrorCode());
+    }
+
+    @Test
+    void updateStageAllowsAdminAnyStageAndSkipsNoOpChange() {
+        User admin = user(1L, "admin", Role.ADMIN);
+        Client client = client();
+        client.setStage(WorkStage.FIRST_CALL);
+        when(clientRepository.findById(1L)).thenReturn(Optional.of(client));
+
+        ClientResponse response = clientService.updateStage(1L,
+                new StageUpdateRequest(WorkStage.FIRST_CALL, null), admin);
+
+        assertEquals(WorkStage.FIRST_CALL, response.stage());
+        verify(eventService, never()).record(any(), any(), any(), any());
+        verify(clientRepository, never()).save(any());
     }
 }

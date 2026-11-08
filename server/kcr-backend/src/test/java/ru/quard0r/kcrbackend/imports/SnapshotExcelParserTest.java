@@ -10,6 +10,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.time.LocalDate;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -22,12 +23,13 @@ class SnapshotExcelParserTest {
     private final LocalDate snapshotDate = LocalDate.of(2026, 10, 20);
 
     @Test
-    void parsesPeriodSheets() throws IOException {
+    void importsOnlySheetsOfSelectedPeriod() throws IOException {
         ParseResult<SnapshotCreateCommand> result = parser.parse(
-                new ByteArrayInputStream(snapshotWorkbook()), snapshotDate);
+                new ByteArrayInputStream(snapshotWorkbook()), snapshotDate, "1 кв 2026");
 
         assertTrue(result.getIssues().isEmpty(), () -> result.getIssues().toString());
-        assertEquals(3, result.getCommands().size());
+        assertEquals(2, result.getCommands().size());
+        assertEquals(List.of("2 кв 2026"), result.getSkippedSheets());
 
         SnapshotCreateCommand first = result.getCommands().get(0);
         assertEquals("BTT76330", first.kcrCode());
@@ -35,15 +37,20 @@ class SnapshotExcelParserTest {
         assertEquals(snapshotDate, first.snapshotDate());
         assertEquals(96, first.totalDocuments());
         assertEquals(25, first.notTransferredDocuments());
-
-        SnapshotCreateCommand third = result.getCommands().get(2);
-        assertEquals("2 кв 2026", third.reportingPeriod());
-        assertEquals("NWX51516", third.kcrCode());
-        assertEquals(0, third.notTransferredDocuments());
     }
 
     @Test
-    void reportsDuplicatesPerSheetOnly() throws IOException {
+    void matchesPeriodIgnoringCaseAndSpacing() throws IOException {
+        ParseResult<SnapshotCreateCommand> result = parser.parse(
+                new ByteArrayInputStream(snapshotWorkbook()), snapshotDate, "  1 КВ 2026  ");
+
+        assertEquals(2, result.getCommands().size());
+        // канонический период — введённое значение как есть (без краёв), а не имя листа
+        assertEquals("1 КВ 2026", result.getCommands().get(0).reportingPeriod());
+    }
+
+    @Test
+    void reportsDuplicatesWithinSelectedPeriodSheet() throws IOException {
         try (XSSFWorkbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             Sheet first = workbook.createSheet("1 кв 2026");
             header(first);
@@ -55,15 +62,47 @@ class SnapshotExcelParserTest {
             workbook.write(out);
 
             ParseResult<SnapshotCreateCommand> result =
-                    parser.parse(new ByteArrayInputStream(out.toByteArray()), snapshotDate);
+                    parser.parse(new ByteArrayInputStream(out.toByteArray()), snapshotDate, "1 кв 2026");
 
-            assertEquals(1, result.getCommands().size());
-            assertEquals("2 кв 2026", result.getCommands().get(0).reportingPeriod());
+            assertEquals(0, result.getCommands().size());
+            assertEquals(List.of("2 кв 2026"), result.getSkippedSheets());
             assertEquals(2, result.getIssues().size());
             assertEquals("1 кв 2026", result.getIssues().get(0).sheet());
             assertEquals(3, result.getIssues().get(0).row());
             assertEquals(4, result.getIssues().get(1).row());
         }
+    }
+
+    @Test
+    void reportsDuplicatesAcrossSheetsOfSamePeriod() throws IOException {
+        try (XSSFWorkbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            // два имени, неразличимые после нормализации, — оба листа попадают в один период
+            Sheet first = workbook.createSheet("1 кв 2026");
+            header(first);
+            row(first, 2, "ISE83063", 100, 10);
+            Sheet second = workbook.createSheet("1  кв 2026");
+            header(second);
+            row(second, 2, "ISE83063", 90, 5);
+            workbook.write(out);
+
+            ParseResult<SnapshotCreateCommand> result =
+                    parser.parse(new ByteArrayInputStream(out.toByteArray()), snapshotDate, "1 кв 2026");
+
+            assertEquals(0, result.getCommands().size());
+            assertEquals(2, result.getIssues().size());
+            assertTrue(result.getIssues().get(0).message().contains("Duplicate KCR code"));
+        }
+    }
+
+    @Test
+    void reportsSkippedSheetsWhenNothingMatches() throws IOException {
+        ParseResult<SnapshotCreateCommand> result = parser.parse(
+                new ByteArrayInputStream(snapshotWorkbook()), snapshotDate, "9 кв 2026");
+
+        assertEquals(0, result.getCommands().size());
+        assertTrue(result.getIssues().isEmpty());
+        // пустой лист «3 кв 2026» не отчётлив — данных нет
+        assertEquals(List.of("1 кв 2026", "2 кв 2026"), result.getSkippedSheets());
     }
 
     @Test
@@ -78,7 +117,8 @@ class SnapshotExcelParserTest {
             row(sheet, 6, "DEP62740", 60, 4);
             workbook.write(out);
 
-            ParseResult<SnapshotCreateCommand> result = parser.parse(new ByteArrayInputStream(out.toByteArray()), snapshotDate);
+            ParseResult<SnapshotCreateCommand> result =
+                    parser.parse(new ByteArrayInputStream(out.toByteArray()), snapshotDate, "1 кв 2026");
 
             assertEquals(1, result.getCommands().size());
             assertEquals("DEP62740", result.getCommands().get(0).kcrCode());
@@ -102,7 +142,8 @@ class SnapshotExcelParserTest {
             data.createCell(4).setCellValue(25);
             workbook.write(out);
 
-            ParseResult<SnapshotCreateCommand> result = parser.parse(new ByteArrayInputStream(out.toByteArray()), snapshotDate);
+            ParseResult<SnapshotCreateCommand> result =
+                    parser.parse(new ByteArrayInputStream(out.toByteArray()), snapshotDate, "1 кв 2026");
 
             assertTrue(result.getIssues().isEmpty(), () -> result.getIssues().toString());
             assertEquals(1, result.getCommands().size());
@@ -112,7 +153,28 @@ class SnapshotExcelParserTest {
     }
 
     @Test
-    void skipsSheetWithoutCounterColumn() throws IOException {
+    void skipsSheetsOfOtherPeriodsWithoutIssues() throws IOException {
+        try (XSSFWorkbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            Sheet other = workbook.createSheet("1 кв 2026");
+            other.createRow(0).createCell(0).setCellValue("данные другого периода");
+            Sheet good = workbook.createSheet("2 кв 2026");
+            header(good);
+            row(good, 2, "BTT76330", 69, 17);
+            workbook.write(out);
+
+            ParseResult<SnapshotCreateCommand> result =
+                    parser.parse(new ByteArrayInputStream(out.toByteArray()), snapshotDate, "2 кв 2026");
+
+            assertTrue(result.getIssues().isEmpty(), () -> result.getIssues().toString());
+            assertEquals(1, result.getCommands().size());
+            assertEquals("2 кв 2026", result.getCommands().get(0).reportingPeriod());
+            assertEquals(69, result.getCommands().get(0).totalDocuments());
+            assertEquals(List.of("1 кв 2026"), result.getSkippedSheets());
+        }
+    }
+
+    @Test
+    void reportsSelectedPeriodSheetWithoutCounterColumn() throws IOException {
         try (XSSFWorkbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             Sheet broken = workbook.createSheet("1 кв 2026");
             Row brokenHeader = broken.createRow(1);
@@ -125,10 +187,10 @@ class SnapshotExcelParserTest {
             row(good, 2, "BTT76330", 69, 17);
             workbook.write(out);
 
-            ParseResult<SnapshotCreateCommand> result = parser.parse(new ByteArrayInputStream(out.toByteArray()), snapshotDate);
+            ParseResult<SnapshotCreateCommand> result =
+                    parser.parse(new ByteArrayInputStream(out.toByteArray()), snapshotDate, "1 кв 2026");
 
-            assertEquals(1, result.getCommands().size());
-            assertEquals("2 кв 2026", result.getCommands().get(0).reportingPeriod());
+            assertEquals(0, result.getCommands().size());
             assertEquals(1, result.getIssues().size());
             assertEquals("1 кв 2026", result.getIssues().get(0).sheet());
             assertNull(result.getIssues().get(0).row());
@@ -146,7 +208,8 @@ class SnapshotExcelParserTest {
             row(sheet, 4, "BTT76330", 100, 10);
             workbook.write(out);
 
-            ParseResult<SnapshotCreateCommand> result = parser.parse(new ByteArrayInputStream(out.toByteArray()), snapshotDate);
+            ParseResult<SnapshotCreateCommand> result =
+                    parser.parse(new ByteArrayInputStream(out.toByteArray()), snapshotDate, "1 кв 2026");
 
             assertEquals(1, result.getCommands().size());
             assertEquals(2, result.getIssues().size());
@@ -163,8 +226,23 @@ class SnapshotExcelParserTest {
             row(sheet, 2, "BTT76330", 100, 10);
             workbook.write(out);
 
-            assertThrows(NullPointerException.class,
-                    () -> parser.parse(new ByteArrayInputStream(out.toByteArray()), null));
+            assertThrows(NullPointerException.class, () -> parser.parse(
+                    new ByteArrayInputStream(out.toByteArray()), null, "1 кв 2026"));
+        }
+    }
+
+    @Test
+    void requiresReportingPeriod() throws IOException {
+        try (XSSFWorkbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            Sheet sheet = workbook.createSheet("1 кв 2026");
+            header(sheet);
+            row(sheet, 2, "BTT76330", 100, 10);
+            workbook.write(out);
+
+            assertThrows(NullPointerException.class, () -> parser.parse(
+                    new ByteArrayInputStream(out.toByteArray()), snapshotDate, null));
+            assertThrows(IllegalArgumentException.class, () -> parser.parse(
+                    new ByteArrayInputStream(out.toByteArray()), snapshotDate, "  "));
         }
     }
 

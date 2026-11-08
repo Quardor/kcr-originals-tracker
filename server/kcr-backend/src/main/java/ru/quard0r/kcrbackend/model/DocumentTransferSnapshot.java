@@ -2,6 +2,7 @@ package ru.quard0r.kcrbackend.model;
 
 import jakarta.persistence.*;
 import lombok.*;
+import ru.quard0r.kcrbackend.clients.model.Client;
 
 import java.time.LocalDate;
 

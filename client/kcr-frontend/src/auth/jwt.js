@@ -15,6 +15,7 @@ export function decodeUser(accessToken) {
     );
     const claims = JSON.parse(json);
     return {
+      id: claims.sub != null ? Number(claims.sub) : null,
       username: claims.preferred_username ?? '',
       role: typeof claims.roles === 'string' ? claims.roles : null,
     };

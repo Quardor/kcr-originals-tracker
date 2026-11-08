@@ -28,6 +28,17 @@ public enum ErrorCode {
     // импорт Excel (§11.4)
     IMPORT_FILE_REQUIRED(HttpStatus.BAD_REQUEST, "Import file is required"),
     IMPORT_FILE_UNREADABLE(HttpStatus.BAD_REQUEST, "Unable to read the file as an Excel workbook"),
+    IMPORT_PERIOD_NOT_FOUND(HttpStatus.BAD_REQUEST, "No sheet matches the selected reporting period"),
+
+    // операторский цикл (§11.4)
+    CLIENT_ALREADY_TAKEN(HttpStatus.CONFLICT, "Client is already taken by another operator"),
+    USER_NOT_FOUND(HttpStatus.NOT_FOUND, "User not found"),
+    STAGE_CHANGE_FORBIDDEN(HttpStatus.FORBIDDEN, "Stage change is not allowed for this operator"),
+    EVENT_TYPE_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "This event type cannot be created manually"),
+    EVENT_FIELD_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "Field is not allowed for this event type"),
+    CALL_RESULT_REQUIRED(HttpStatus.BAD_REQUEST, "Call result is required for CALL events"),
+    CLAIM_NOT_FOUND(HttpStatus.NOT_FOUND, "Claim not found"),
+    SANCTION_NOT_FOUND(HttpStatus.NOT_FOUND, "Sanction not found"),
 
     // запрос не прошёл разбор/валидацию (ошибки фреймворка, GlobalExceptionHandler)
     VALIDATION_FAILED(HttpStatus.BAD_REQUEST, "Validation failed"),

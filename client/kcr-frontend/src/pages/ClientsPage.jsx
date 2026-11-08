@@ -5,11 +5,14 @@ import { errorMessage } from '../api/errors';
 import { useAuth } from '../auth/AuthContext';
 import Pagination from '../components/Pagination';
 import { ClientTypeBadge, ErrorBox, Spinner, TriStateBadge } from '../components/ui';
+import { WORK_STAGES, stageLabel } from '../labels';
 
 const SORT_FIELDS = [
   { value: 'kcrCode', label: 'Код KCR' },
   { value: 'organizationName', label: 'Организация' },
   { value: 'inn', label: 'ИНН' },
+  { value: 'stage', label: 'Этап' },
+  { value: 'nextContactAt', label: 'Следующий контакт' },
   { value: 'id', label: 'ID' },
 ];
 
@@ -27,14 +30,22 @@ const TRI_STATE = [
   { value: 'false', label: 'Нет' },
 ];
 
+const ASSIGNEE_FILTERS = [
+  { value: '', label: 'Любой' },
+  { value: 'mine', label: 'Только мои' },
+  { value: 'free', label: 'Свободные' },
+];
+
 export default function ClientsPage() {
-  const { isAdmin } = useAuth();
+  const { user, isAdmin } = useAuth();
 
   const [search, setSearch] = useState('');
   const [clientType, setClientType] = useState('');
   const [kcrActive, setKcrActive] = useState('');
   const [kcrBlocked, setKcrBlocked] = useState('');
   const [flag, setFlag] = useState('');
+  const [stage, setStage] = useState('');
+  const [assignee, setAssignee] = useState('');
   const [sortBy, setSortBy] = useState('kcrCode');
   const [sortDir, setSortDir] = useState('asc');
   const [page, setPage] = useState(0);
@@ -65,12 +76,15 @@ export default function ClientsPage() {
         kcrActive: kcrActive === '' ? undefined : kcrActive === 'true',
         kcrBlocked: kcrBlocked === '' ? undefined : kcrBlocked === 'true',
         flag: flag.trim() || undefined,
+        stage: stage || undefined,
+        assigneeId: assignee === 'mine' && user?.id != null ? user.id : undefined,
+        unassigned: assignee === 'free' ? true : undefined,
         sortBy,
         sortDir,
         page,
         size,
       }),
-    [debouncedSearch, clientType, kcrActive, kcrBlocked, flag, sortBy, sortDir, page, size]
+    [debouncedSearch, clientType, kcrActive, kcrBlocked, flag, stage, assignee, user, sortBy, sortDir, page, size]
   );
 
   // Фильтры меняются быстро: отменяем применение ответов устаревших запросов.
@@ -150,6 +164,17 @@ export default function ClientsPage() {
           value={flag}
           onChange={(e) => changeFilter(setFlag)(e.target.value)}
         />
+        <select value={stage} onChange={(e) => changeFilter(setStage)(e.target.value)}>
+          <option value="">Этап: любой</option>
+          {WORK_STAGES.map((s) => (
+            <option key={s.value} value={s.value}>Этап: {s.label}</option>
+          ))}
+        </select>
+        <select value={assignee} onChange={(e) => changeFilter(setAssignee)(e.target.value)}>
+          {ASSIGNEE_FILTERS.map((a) => (
+            <option key={a.value} value={a.value}>Ответственный: {a.label}</option>
+          ))}
+        </select>
         <select value={sortBy} onChange={(e) => changeFilter(setSortBy)(e.target.value)}>
           {SORT_FIELDS.map((f) => (
             <option key={f.value} value={f.value}>Сортировка: {f.label}</option>
@@ -180,6 +205,13 @@ export default function ClientsPage() {
                   <th className="th-sortable" onClick={() => toggleSort('inn')}>
                     ИНН{sortIndicator('inn')}
                   </th>
+                  <th className="th-sortable" onClick={() => toggleSort('stage')}>
+                    Этап{sortIndicator('stage')}
+                  </th>
+                  <th>Ответственный</th>
+                  <th className="th-sortable" onClick={() => toggleSort('nextContactAt')}>
+                    След. контакт{sortIndicator('nextContactAt')}
+                  </th>
                   <th>Тип</th>
                   <th>KCR действует</th>
                   <th>KCR заблокирован</th>
@@ -189,7 +221,7 @@ export default function ClientsPage() {
               <tbody>
                 {data?.content?.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="table-empty">Ничего не найдено</td>
+                    <td colSpan={10} className="table-empty">Ничего не найдено</td>
                   </tr>
                 )}
                 {data?.content?.map((client) => (
@@ -201,6 +233,13 @@ export default function ClientsPage() {
                     </td>
                     <td className="cell-wide">{client.organizationName ?? '—'}</td>
                     <td>{client.inn}</td>
+                    <td>
+                      <span className={`badge badge-stage-${(client.stage ?? '').toLowerCase()}`}>
+                        {stageLabel(client.stage)}
+                      </span>
+                    </td>
+                    <td>{client.assigneeUsername ?? <span className="muted">—</span>}</td>
+                    <td>{client.nextContactAt ?? '—'}</td>
                     <td><ClientTypeBadge type={client.clientType} /></td>
                     <td><TriStateBadge value={client.kcrActive} positive="да" negative="нет" /></td>
                     <td><TriStateBadge value={client.kcrBlocked} positive="да" negative="нет" /></td>

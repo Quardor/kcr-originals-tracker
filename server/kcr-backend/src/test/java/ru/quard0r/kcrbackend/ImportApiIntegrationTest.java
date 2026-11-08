@@ -22,9 +22,11 @@ import java.util.regex.Pattern;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.hamcrest.Matchers.containsString;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
@@ -86,6 +88,21 @@ class ImportApiIntegrationTest {
         assertEquals("0987654321", inn(newCode));
         assertFalse(clientExists(incompleteCode));
 
+        // каждая затронутая загрузка строка оставляет IMPORT-событие в истории клиента (§11.2)
+        Long existingId = jdbcTemplate.queryForObject(
+                "SELECT id FROM clients WHERE kcr_code = ?", Long.class, existingCode);
+        Long newId = jdbcTemplate.queryForObject(
+                "SELECT id FROM clients WHERE kcr_code = ?", Long.class, newCode);
+        mockMvc.perform(get("/api/v1/clients/" + existingId + "/events")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("\"type\":\"IMPORT\"")))
+                .andExpect(content().string(containsString("Импорт клиентов: обновлён")));
+        mockMvc.perform(get("/api/v1/clients/" + newId + "/events")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("Импорт клиентов: создан")));
+
         MvcResult reapply = mockMvc.perform(multipart("/api/v1/import/clients")
                         .file(new MockMultipartFile("file", file))
                         .header("Authorization", "Bearer " + adminToken))
@@ -121,19 +138,23 @@ class ImportApiIntegrationTest {
         mockMvc.perform(multipart("/api/v1/import/snapshots/preview")
                         .file(upload)
                         .param("snapshotDate", "2026-10-20")
+                        .param("reportingPeriod", "1 кв 2026")
                         .header("Authorization", "Bearer " + adminToken))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString(matchedCode)))
                 .andExpect(content().string(containsString("\"totalInFile\":null")))
                 .andExpect(content().string(containsString("\"totalResolved\":96")))
-                .andExpect(content().string(containsString(unmatchedCode)));
+                .andExpect(content().string(containsString(unmatchedCode)))
+                .andExpect(jsonPath("$.skippedSheets.length()").value(1));
 
         mockMvc.perform(multipart("/api/v1/import/snapshots")
                         .file(upload)
                         .param("snapshotDate", "2026-10-20")
+                        .param("reportingPeriod", "1 кв 2026")
                         .header("Authorization", "Bearer " + adminToken))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("\"created\":1")))
+                .andExpect(jsonPath("$.skippedSheets.length()").value(1))
                 .andExpect(content().string(containsString(unmatchedCode)));
 
         assertEquals("1 кв 2026", jdbcTemplate.queryForObject(
@@ -145,6 +166,29 @@ class ImportApiIntegrationTest {
         assertEquals(4, jdbcTemplate.queryForObject(
                 "SELECT not_transferred_documents FROM document_transfer_snapshots "
                         + "WHERE client_id = ? AND snapshot_date = '2026-10-20'", Integer.class, clientId));
+
+        // запись среза дублируется IMPORT-событием с периодом, датой и счётчиком
+        mockMvc.perform(get("/api/v1/clients/" + clientId + "/events")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("\"type\":\"IMPORT\"")))
+                .andExpect(content().string(containsString(
+                        "Импорт срезов (период «1 кв 2026», срез 2026-10-20): не передано 4")));
+
+        // период, которого нет в файле, — ошибка, а не пустой импорт
+        mockMvc.perform(multipart("/api/v1/import/snapshots")
+                        .file(upload)
+                        .param("snapshotDate", "2026-10-20")
+                        .param("reportingPeriod", "9 кв 2026")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().string(containsString("IMPORT_PERIOD_NOT_FOUND")));
+
+        mockMvc.perform(multipart("/api/v1/import/snapshots")
+                        .file(upload)
+                        .param("snapshotDate", "2026-10-20")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isBadRequest());
 
         mockMvc.perform(multipart("/api/v1/import/snapshots")
                         .file(upload)
@@ -186,7 +230,8 @@ class ImportApiIntegrationTest {
 
     /**
      * Real snapshot export layout: identifier in column A, only the "not transferred" counter —
-     * the total column is absent, so it is inherited from the previous snapshot.
+     * the total column is absent, so it is inherited from the previous snapshot. The second
+     * sheet belongs to another reporting period and must be skipped by the period filter.
      */
     private byte[] snapshotWorkbook(String matchedCode, String unmatchedCode) throws Exception {
         try (XSSFWorkbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
@@ -202,6 +247,14 @@ class ImportApiIntegrationTest {
             Row unmatched = sheet.createRow(3);
             unmatched.createCell(0).setCellValue(unmatchedCode);
             unmatched.createCell(4).setCellValue(10);
+
+            Sheet otherPeriod = workbook.createSheet("2 кв 2026");
+            Row otherHeader = otherPeriod.createRow(1);
+            otherHeader.createCell(0).setCellValue("Уникальны обезличинный идентификатор");
+            otherHeader.createCell(4).setCellValue("Всего не отправлено документов");
+            Row other = otherPeriod.createRow(2);
+            other.createCell(0).setCellValue(matchedCode);
+            other.createCell(4).setCellValue(50);
             workbook.write(out);
             return out.toByteArray();
         }
