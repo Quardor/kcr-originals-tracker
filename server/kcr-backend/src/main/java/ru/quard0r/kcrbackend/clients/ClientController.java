@@ -27,7 +27,7 @@ import ru.quard0r.kcrbackend.clients.model.ClientType;
 import ru.quard0r.kcrbackend.clients.model.WorkStage;
 import ru.quard0r.kcrbackend.common.PageLimits;
 import ru.quard0r.kcrbackend.common.PageResponse;
-import ru.quard0r.kcrbackend.dto.response.SnapshotResponse;
+import ru.quard0r.kcrbackend.snapshots.dto.SnapshotResponse;
 import ru.quard0r.kcrbackend.common.error.DomainException;
 import ru.quard0r.kcrbackend.common.error.ErrorCode;
 import ru.quard0r.kcrbackend.security.CustomUserDetails;

@@ -1,7 +1,7 @@
-package ru.quard0r.kcrbackend.repository;
+package ru.quard0r.kcrbackend.snapshots.repository;
 
 import org.springframework.data.jpa.repository.JpaRepository;
-import ru.quard0r.kcrbackend.model.DocumentTransferSnapshot;
+import ru.quard0r.kcrbackend.snapshots.model.DocumentTransferSnapshot;
 
 import java.util.List;
 import java.util.Optional;

@@ -18,13 +18,13 @@ import ru.quard0r.kcrbackend.clients.model.ClientType;
 import ru.quard0r.kcrbackend.clients.model.WorkStage;
 import ru.quard0r.kcrbackend.clients.repository.ClientRepository;
 import ru.quard0r.kcrbackend.common.PageResponse;
-import ru.quard0r.kcrbackend.dto.response.SnapshotResponse;
+import ru.quard0r.kcrbackend.snapshots.dto.SnapshotResponse;
 import ru.quard0r.kcrbackend.common.error.DomainException;
 import ru.quard0r.kcrbackend.common.error.ErrorCode;
-import ru.quard0r.kcrbackend.model.DocumentTransferSnapshot;
+import ru.quard0r.kcrbackend.snapshots.model.DocumentTransferSnapshot;
 import ru.quard0r.kcrbackend.users.model.Role;
 import ru.quard0r.kcrbackend.users.model.User;
-import ru.quard0r.kcrbackend.repository.DocumentTransferSnapshotRepository;
+import ru.quard0r.kcrbackend.snapshots.repository.DocumentTransferSnapshotRepository;
 import ru.quard0r.kcrbackend.users.repository.UserRepository;
 
 import java.time.LocalDate;

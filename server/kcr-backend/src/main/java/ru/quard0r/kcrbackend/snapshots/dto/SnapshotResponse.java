@@ -1,7 +1,7 @@
-package ru.quard0r.kcrbackend.dto.response;
+package ru.quard0r.kcrbackend.snapshots.dto;
 
 import lombok.Builder;
-import ru.quard0r.kcrbackend.model.DocumentTransferSnapshot;
+import ru.quard0r.kcrbackend.snapshots.model.DocumentTransferSnapshot;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;

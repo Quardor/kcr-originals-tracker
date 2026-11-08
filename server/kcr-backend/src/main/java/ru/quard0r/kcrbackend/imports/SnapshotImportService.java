@@ -15,8 +15,8 @@ import ru.quard0r.kcrbackend.clients.model.Client;
 import ru.quard0r.kcrbackend.clients.repository.ClientRepository;
 import ru.quard0r.kcrbackend.imports.dto.SnapshotPreviewRow;
 import ru.quard0r.kcrbackend.users.model.User;
-import ru.quard0r.kcrbackend.model.DocumentTransferSnapshot;
-import ru.quard0r.kcrbackend.repository.DocumentTransferSnapshotRepository;
+import ru.quard0r.kcrbackend.snapshots.model.DocumentTransferSnapshot;
+import ru.quard0r.kcrbackend.snapshots.repository.DocumentTransferSnapshotRepository;
 
 import java.io.IOException;
 import java.time.LocalDate;
