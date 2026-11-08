@@ -186,7 +186,7 @@ CORS — §8). Аутентификация — Bearer access-токен kcr-bac
 | `GET /api/v1/ai/analytics/dynamics` | UC-4: серии по отчётным периодам (для графиков во времени) |
 | `GET /api/v1/ai/analytics/top-debt` | UC-4: топ клиентов по доле непереданных |
 | `GET /api/v1/ai/analytics/operators` | UC-4: нагрузка операторов (в работе / сегодня к контакту) |
-| `POST /api/v1/ai/export/xlsx` | UC-5: выборка или отчёт → xlsx-файл |
+| `POST /api/v1/ai/export/xlsx` | UC-5: `{kind, table?}` → xlsx-файл; `kind` = `table` (готовая таблица с клиента: колонки + строки), `analytics_summary`, `analytics_dynamics`, `analytics_top_debt`, `analytics_operators` (пересчитываются детерминированно) |
 
 Формат аналитики — готовые серии под графики клиента, например `GET /analytics/dynamics`:
 
@@ -202,7 +202,10 @@ CORS — §8). Аутентификация — Bearer access-токен kcr-bac
 
 Категории динамики и их имена — едины с бэкендом (`DynamicsCategory`, §11.2 его
 ARCHITECTURE.md). Источник агрегатов — read-only API бэкенда (справочник клиентов с фильтрами,
-срезы); суммирование выполняется на стороне kcr-ml. При росте объёмов — агрегатные эндпоинты
+срезы); суммирование выполняется на стороне kcr-ml. Пока в бэкенде нет миграции V11
+(колонка `dynamics_category`), категории вычисляются в kcr-ml детерминированно из истории
+срезов (`domain/dynamics.py`, правила §11.2; приоритет категорий при пересечении правил —
+см. docstring модуля). При росте объёмов — агрегатные эндпоинты
 в бэкенде за тем же портом `DataSourcePort` (замена адаптера, ядро не меняется).
 
 ### WebSocket — чат с ИИ (UC-1)
@@ -240,9 +243,12 @@ ARCHITECTURE.md). Источник агрегатов — read-only API бэке
 { "code": "LLM_TIMEOUT", "message": "LLM provider did not respond in time", "timestamp": "2026-11-08T10:00:00Z" }
 ```
 
-Коды — константы приложения (`AUTHENTICATION_REQUIRED`, `VALIDATION_FAILED`, `BACKEND_UNAVAILABLE`,
-`LLM_TIMEOUT`, `LLM_INVALID_RESPONSE`, `INTERNAL_ERROR`); доменные исключения маппятся
+Коды — константы приложения (`AUTHENTICATION_REQUIRED`, `ACCESS_DENIED`, `VALIDATION_FAILED`,
+`RESOURCE_NOT_FOUND`, `BACKEND_UNAVAILABLE`, `LLM_TIMEOUT`, `LLM_UNAVAILABLE`,
+`LLM_INVALID_RESPONSE`, `TOOL_LIMIT_EXCEEDED`, `INTERNAL_ERROR`); доменные исключения маппятся
 в HTTP-статусы единым обработчиком, непредвиденное — catch-all 500 с нейтральным телом.
+Формат ответов REST — camelCase (как у бэкенда); внутри серий `analytics/dynamics` ключи
+категорий — канонические имена `DynamicsCategory` в lower_snake_case (пример выше).
 
 ## 8. Аутентификация и безопасность
 
@@ -292,6 +298,7 @@ ml/
 │       ├── exceptions.py      # доменные ошибки + коды, единый контракт §7
 │       ├── domain/            # ЧИСТЫЙ слой — без FastAPI/httpx/SDK/pandas
 │       │   ├── model.py       # read-model: ClientView, SnapshotView, EventView…
+│       │   ├── dynamics.py    # детерминированный расчёт DynamicsCategory из срезов
 │       │   ├── criteria.py    # критерии выборки/приоритизации, правила скоринга
 │       │   └── prompts.py     # системные промпты (роль, правила, инструменты)
 │       ├── application/       # use-case'ы; знают порты, не адаптеры
@@ -319,8 +326,9 @@ ml/
 │           └── schemas/       # Pydantic v2: REST, WS-сообщения, ответы LLM
 └── tests/
     ├── conftest.py            # фикстуры: фейки портов, ASGI-клиент, тестовый JWT
+    ├── fakes.py               # FakeDataSource, ScriptedLlm, сид-вселенная, JWT-хелпер
     ├── unit/                  # domain + application на фейках (без сети и LLM)
-    ├── integration/           # api-слой через httpx ASGI-транспорт
+    ├── integration/           # api-слой через httpx ASGI-транспорт (REST и WS)
     └── scenarios/             # контрольные сценарии приёмки из ТЗ (§14)
 ```
 
@@ -362,6 +370,9 @@ Multi-stage, воспроизводимый, без сборочных инст�
 | `LLM_TIMEOUT_SECONDS` / `LLM_MAX_TOKENS` | нет | таймаут/лимит генерации (60 / 2048) |
 | `AI_CHAT_HISTORY_LIMIT` | нет | сообщений истории на соединение (20) |
 | `AI_MAX_TOOL_ITERATIONS` | нет | максимум циклов tool calling (5) |
+| `AI_MAX_TABLE_ROWS` | нет | лимит строк таблицы `data` в чате (50) |
+| `AI_MAX_SCAN_CLIENTS` | нет | верхняя граница сканируемого справочника (500) |
+| `AI_SCORE_UNTRANSFERRED` / `AI_SCORE_DYNAMICS` / `AI_SCORE_URGENCY` / `AI_SCORE_STAGE` / `AI_SCORE_VIP` | нет | веса детерминированного скоринга UC-3 (40/25/20/10/5) |
 | `APP_CORS_ALLOWED_ORIGINS` | нет | origins фронта (dev: `http://localhost:5173`) |
 
 ## 14. Контрольные сценарии приёмки (из ТЗ)
@@ -401,6 +412,10 @@ Multi-stage, воспроизводимый, без сборочных инст�
 Каждый пункт — ветка `feature/*` и PR в `develop` (конвенция монорепозитория); тесты
 пишутся вместе с кодом, закрытые пункты переносятся из §15 в краткую заметку о состоянии
 в README.
+
+Состояние: пункты 1–8 реализованы 2026-11-08 на ветке `feature/ai-agent` одним проходом
+(заметка о состоянии — в [README.md](./README.md)); прогон контрольных сценариев живой
+моделью — после выбора Qwen-развёртывания (открытый вопрос 1 §16).
 
 ## 16. Открытые вопросы
 
