@@ -1,4 +1,4 @@
-package ru.quard0r.kcrbackend.controller;
+package ru.quard0r.kcrbackend.imports;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
