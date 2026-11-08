@@ -12,8 +12,8 @@ import ru.quard0r.kcrbackend.clients.events.dto.SanctionResponse;
 import ru.quard0r.kcrbackend.clients.events.dto.SanctionUpdateRequest;
 import ru.quard0r.kcrbackend.clients.model.Client;
 import ru.quard0r.kcrbackend.clients.repository.ClientRepository;
-import ru.quard0r.kcrbackend.exception.DomainException;
-import ru.quard0r.kcrbackend.exception.ErrorCode;
+import ru.quard0r.kcrbackend.common.error.DomainException;
+import ru.quard0r.kcrbackend.common.error.ErrorCode;
 import ru.quard0r.kcrbackend.model.User;
 
 import java.util.ArrayList;

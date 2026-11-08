@@ -1,4 +1,4 @@
-package ru.quard0r.kcrbackend.exception;
+package ru.quard0r.kcrbackend.common.error;
 
 import lombok.Getter;
 import org.springframework.http.HttpStatus;

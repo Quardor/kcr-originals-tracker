@@ -1,4 +1,4 @@
-package ru.quard0r.kcrbackend.exception;
+package ru.quard0r.kcrbackend.common.error;
 
 import org.hibernate.exception.ConstraintViolationException;
 import org.slf4j.Logger;
@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
-import ru.quard0r.kcrbackend.dto.response.ErrorResponse;
+import ru.quard0r.kcrbackend.common.error.ErrorResponse;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;

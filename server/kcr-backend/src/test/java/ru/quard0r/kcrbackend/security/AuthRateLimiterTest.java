@@ -3,8 +3,8 @@ package ru.quard0r.kcrbackend.security;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
-import ru.quard0r.kcrbackend.exception.DomainException;
-import ru.quard0r.kcrbackend.exception.ErrorCode;
+import ru.quard0r.kcrbackend.common.error.DomainException;
+import ru.quard0r.kcrbackend.common.error.ErrorCode;
 
 import java.time.Duration;
 

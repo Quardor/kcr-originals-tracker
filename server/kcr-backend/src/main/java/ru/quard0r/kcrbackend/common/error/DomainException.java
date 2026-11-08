@@ -1,4 +1,4 @@
-package ru.quard0r.kcrbackend.exception;
+package ru.quard0r.kcrbackend.common.error;
 
 /**
  * Единственное доменное исключение: HTTP-статус и сообщение несёт ErrorCode,

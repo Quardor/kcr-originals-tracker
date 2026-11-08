@@ -1,4 +1,4 @@
-package ru.quard0r.kcrbackend.exception;
+package ru.quard0r.kcrbackend.common.error;
 
 import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.Test;
@@ -6,7 +6,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
-import ru.quard0r.kcrbackend.dto.response.ErrorResponse;
+import ru.quard0r.kcrbackend.common.error.ErrorResponse;
 
 import java.sql.SQLException;
 

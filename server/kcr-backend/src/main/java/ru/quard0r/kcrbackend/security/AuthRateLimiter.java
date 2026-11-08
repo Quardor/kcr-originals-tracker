@@ -5,8 +5,8 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import io.github.bucket4j.Bucket;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-import ru.quard0r.kcrbackend.exception.DomainException;
-import ru.quard0r.kcrbackend.exception.ErrorCode;
+import ru.quard0r.kcrbackend.common.error.DomainException;
+import ru.quard0r.kcrbackend.common.error.ErrorCode;
 
 import java.time.Duration;
 

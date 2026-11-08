@@ -1,7 +1,7 @@
-package ru.quard0r.kcrbackend.dto.response;
+package ru.quard0r.kcrbackend.common.error;
 
 import lombok.Builder;
-import ru.quard0r.kcrbackend.exception.ErrorCode;
+import ru.quard0r.kcrbackend.common.error.ErrorCode;
 
 import java.time.Instant;
 

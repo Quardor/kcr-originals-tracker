@@ -12,8 +12,8 @@ import ru.quard0r.kcrbackend.clients.model.Client;
 import ru.quard0r.kcrbackend.clients.model.WorkStage;
 import ru.quard0r.kcrbackend.clients.repository.ClientRepository;
 import ru.quard0r.kcrbackend.common.PageResponse;
-import ru.quard0r.kcrbackend.exception.DomainException;
-import ru.quard0r.kcrbackend.exception.ErrorCode;
+import ru.quard0r.kcrbackend.common.error.DomainException;
+import ru.quard0r.kcrbackend.common.error.ErrorCode;
 import ru.quard0r.kcrbackend.model.User;
 
 /**
