@@ -1,4 +1,4 @@
-package ru.quard0r.kcrbackend.controller;
+package ru.quard0r.kcrbackend.users;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -6,8 +6,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import ru.quard0r.kcrbackend.dto.response.UserResponse;
-import ru.quard0r.kcrbackend.repository.UserRepository;
+import ru.quard0r.kcrbackend.users.dto.UserResponse;
 
 import java.util.List;
 
@@ -20,13 +19,11 @@ import java.util.List;
 @RequiredArgsConstructor
 public class UserController {
 
-    private final UserRepository userRepository;
+    private final UserService userService;
 
     @GetMapping
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<List<UserResponse>> getUsers() {
-        return ResponseEntity.ok(userRepository.findAllByOrderByUsernameAsc().stream()
-                .map(UserResponse::from)
-                .toList());
+        return ResponseEntity.ok(userService.getAll());
     }
 }

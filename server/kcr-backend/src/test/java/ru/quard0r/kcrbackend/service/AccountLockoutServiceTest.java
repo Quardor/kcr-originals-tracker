@@ -8,9 +8,9 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
-import ru.quard0r.kcrbackend.model.Role;
-import ru.quard0r.kcrbackend.model.User;
-import ru.quard0r.kcrbackend.repository.UserRepository;
+import ru.quard0r.kcrbackend.users.model.Role;
+import ru.quard0r.kcrbackend.users.model.User;
+import ru.quard0r.kcrbackend.users.repository.UserRepository;
 
 import java.time.Duration;
 import java.time.Instant;

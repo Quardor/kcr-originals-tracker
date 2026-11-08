@@ -8,7 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 import ru.quard0r.kcrbackend.common.error.DomainException;
 import ru.quard0r.kcrbackend.common.error.ErrorCode;
 import ru.quard0r.kcrbackend.model.RefreshToken;
-import ru.quard0r.kcrbackend.model.User;
+import ru.quard0r.kcrbackend.users.model.User;
 import ru.quard0r.kcrbackend.repository.RefreshTokenRepository;
 
 import java.nio.charset.StandardCharsets;

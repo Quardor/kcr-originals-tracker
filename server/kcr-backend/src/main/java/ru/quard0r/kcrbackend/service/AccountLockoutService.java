@@ -5,8 +5,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-import ru.quard0r.kcrbackend.model.User;
-import ru.quard0r.kcrbackend.repository.UserRepository;
+import ru.quard0r.kcrbackend.users.model.User;
+import ru.quard0r.kcrbackend.users.repository.UserRepository;
 
 import java.time.Duration;
 import java.time.Instant;

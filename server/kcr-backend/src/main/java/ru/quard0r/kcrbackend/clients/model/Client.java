@@ -6,7 +6,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
-import ru.quard0r.kcrbackend.model.User;
+import ru.quard0r.kcrbackend.users.model.User;
 
 import java.time.Instant;
 import java.time.LocalDate;

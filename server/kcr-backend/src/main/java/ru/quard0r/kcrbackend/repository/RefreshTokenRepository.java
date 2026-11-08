@@ -7,7 +7,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import ru.quard0r.kcrbackend.model.RefreshToken;
-import ru.quard0r.kcrbackend.model.User;
+import ru.quard0r.kcrbackend.users.model.User;
 
 import java.time.Instant;
 import java.util.Optional;

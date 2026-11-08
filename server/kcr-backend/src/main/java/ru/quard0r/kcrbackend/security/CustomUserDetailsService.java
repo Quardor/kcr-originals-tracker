@@ -6,8 +6,8 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
-import ru.quard0r.kcrbackend.model.User;
-import ru.quard0r.kcrbackend.repository.UserRepository;
+import ru.quard0r.kcrbackend.users.model.User;
+import ru.quard0r.kcrbackend.users.repository.UserRepository;
 
 @Service
 @RequiredArgsConstructor

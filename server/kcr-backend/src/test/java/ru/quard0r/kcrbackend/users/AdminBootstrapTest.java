@@ -1,4 +1,4 @@
-package ru.quard0r.kcrbackend.bootstrap;
+package ru.quard0r.kcrbackend.users;
 
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -7,9 +7,9 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.core.env.Environment;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import ru.quard0r.kcrbackend.model.Role;
-import ru.quard0r.kcrbackend.model.User;
-import ru.quard0r.kcrbackend.repository.UserRepository;
+import ru.quard0r.kcrbackend.users.model.Role;
+import ru.quard0r.kcrbackend.users.model.User;
+import ru.quard0r.kcrbackend.users.repository.UserRepository;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;

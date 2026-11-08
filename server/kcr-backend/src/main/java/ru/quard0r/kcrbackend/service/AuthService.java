@@ -13,9 +13,9 @@ import ru.quard0r.kcrbackend.dto.request.RegisterRequest;
 import ru.quard0r.kcrbackend.dto.response.AuthResponse;
 import ru.quard0r.kcrbackend.common.error.DomainException;
 import ru.quard0r.kcrbackend.common.error.ErrorCode;
-import ru.quard0r.kcrbackend.model.Role;
-import ru.quard0r.kcrbackend.model.User;
-import ru.quard0r.kcrbackend.repository.UserRepository;
+import ru.quard0r.kcrbackend.users.model.Role;
+import ru.quard0r.kcrbackend.users.model.User;
+import ru.quard0r.kcrbackend.users.repository.UserRepository;
 import ru.quard0r.kcrbackend.security.CustomUserDetails;
 import ru.quard0r.kcrbackend.security.JwtService;
 

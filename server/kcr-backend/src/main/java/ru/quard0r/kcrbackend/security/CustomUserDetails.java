@@ -3,7 +3,7 @@ package ru.quard0r.kcrbackend.security;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
-import ru.quard0r.kcrbackend.model.User;
+import ru.quard0r.kcrbackend.users.model.User;
 
 import java.time.Instant;
 import java.util.Collection;

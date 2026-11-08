@@ -14,7 +14,7 @@ import ru.quard0r.kcrbackend.clients.events.ClientEventType;
 import ru.quard0r.kcrbackend.clients.model.Client;
 import ru.quard0r.kcrbackend.clients.repository.ClientRepository;
 import ru.quard0r.kcrbackend.imports.dto.SnapshotPreviewRow;
-import ru.quard0r.kcrbackend.model.User;
+import ru.quard0r.kcrbackend.users.model.User;
 import ru.quard0r.kcrbackend.model.DocumentTransferSnapshot;
 import ru.quard0r.kcrbackend.repository.DocumentTransferSnapshotRepository;
 

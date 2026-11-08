@@ -1,5 +1,7 @@
 package ru.quard0r.kcrbackend.model;
 
+import ru.quard0r.kcrbackend.users.model.User;
+
 import jakarta.persistence.*;
 import lombok.*;
 

@@ -1,4 +1,4 @@
-package ru.quard0r.kcrbackend.bootstrap;
+package ru.quard0r.kcrbackend.users;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,9 +12,9 @@ import org.springframework.core.env.Profiles;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 import ru.quard0r.kcrbackend.common.UserIdentityNormalizer;
-import ru.quard0r.kcrbackend.model.Role;
-import ru.quard0r.kcrbackend.model.User;
-import ru.quard0r.kcrbackend.repository.UserRepository;
+import ru.quard0r.kcrbackend.users.model.Role;
+import ru.quard0r.kcrbackend.users.model.User;
+import ru.quard0r.kcrbackend.users.repository.UserRepository;
 
 @Component
 public class AdminBootstrap implements ApplicationRunner {

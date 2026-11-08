@@ -1,11 +1,11 @@
-package ru.quard0r.kcrbackend.repository;
+package ru.quard0r.kcrbackend.users.repository;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-import ru.quard0r.kcrbackend.model.Role;
-import ru.quard0r.kcrbackend.model.User;
+import ru.quard0r.kcrbackend.users.model.Role;
+import ru.quard0r.kcrbackend.users.model.User;
 
 import java.time.Instant;
 import java.util.List;

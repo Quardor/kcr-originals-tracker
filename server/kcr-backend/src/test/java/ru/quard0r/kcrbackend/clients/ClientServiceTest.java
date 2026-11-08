@@ -27,10 +27,10 @@ import ru.quard0r.kcrbackend.dto.response.SnapshotResponse;
 import ru.quard0r.kcrbackend.common.error.DomainException;
 import ru.quard0r.kcrbackend.common.error.ErrorCode;
 import ru.quard0r.kcrbackend.model.DocumentTransferSnapshot;
-import ru.quard0r.kcrbackend.model.Role;
-import ru.quard0r.kcrbackend.model.User;
+import ru.quard0r.kcrbackend.users.model.Role;
+import ru.quard0r.kcrbackend.users.model.User;
 import ru.quard0r.kcrbackend.repository.DocumentTransferSnapshotRepository;
-import ru.quard0r.kcrbackend.repository.UserRepository;
+import ru.quard0r.kcrbackend.users.repository.UserRepository;
 
 import java.time.LocalDate;
 import java.util.List;
