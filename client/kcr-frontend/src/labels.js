@@ -92,3 +92,34 @@ export function formatDateTime(iso) {
   const date = new Date(iso);
   return Number.isNaN(date.getTime()) ? iso : date.toLocaleString('ru-RU');
 }
+
+/* ---------- AI-сервис (kcr-ml) ---------- */
+
+/** Категории динамики (DynamicsCategory, §11.2 ARCHITECTURE.md бэкенда). */
+export const DYNAMICS_CATEGORY_LABELS = {
+  NO_DEBT: 'Всё передано',
+  FIRST_OCCURRENCE: 'Впервые появились',
+  DECREASING: 'Уменьшается',
+  UNCHANGED_OR_GROWING: 'Не меняется / растёт',
+  REAPPEARED: 'Вернулся после погашения',
+  PERSISTENT: 'Сохраняется длительно',
+  NEWCOMER_RISK: 'Долг у новичка',
+};
+
+export function dynamicsCategoryLabel(value) {
+  return DYNAMICS_CATEGORY_LABELS[value] ?? value ?? '—';
+}
+
+/** Человеческие подписи инструментов чата (для статусов «запрашиваю данные…»). */
+const AI_TOOL_LABELS = {
+  search_clients: 'поиск клиентов',
+  get_client: 'карточка клиента',
+  get_client_snapshots: 'срезы передачи документов',
+  get_client_events: 'история событий',
+  get_client_claims: 'претензии',
+  get_today_clients: 'список на сегодня',
+};
+
+export function aiToolLabel(tool) {
+  return AI_TOOL_LABELS[tool] ?? tool;
+}

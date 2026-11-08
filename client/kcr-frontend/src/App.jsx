@@ -2,6 +2,9 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider } from './auth/AuthContext';
 import Layout from './components/Layout';
 import Protected from './components/Protected';
+import AiAnalyticsPage from './pages/AiAnalyticsPage';
+import AiChatPage from './pages/AiChatPage';
+import AiPrioritizePage from './pages/AiPrioritizePage';
 import ClientCardPage from './pages/ClientCardPage';
 import ClientFormPage from './pages/ClientFormPage';
 import ClientsPage from './pages/ClientsPage';
@@ -29,6 +32,16 @@ export default function App() {
             <Route index element={<Navigate to="/clients" replace />} />
             <Route path="clients" element={<ClientsPage />} />
             <Route path="today" element={<TodayPage />} />
+            <Route path="ai" element={<AiChatPage />} />
+            <Route
+              path="ai/prioritize"
+              element={
+                <Protected adminOnly>
+                  <AiPrioritizePage />
+                </Protected>
+              }
+            />
+            <Route path="ai/analytics" element={<AiAnalyticsPage />} />
             <Route
               path="clients/new"
               element={

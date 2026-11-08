@@ -4,6 +4,7 @@ import { fetchUsers } from '../api/claims';
 import { fetchClient, fetchClientSnapshots, takeClient, updateAssignment, updateStage } from '../api/clients';
 import { errorMessage } from '../api/errors';
 import { useAuth } from '../auth/AuthContext';
+import BriefSection from '../components/BriefSection';
 import ClaimsSection from '../components/ClaimsSection';
 import EventForm from '../components/EventForm';
 import HistoryFeed from '../components/HistoryFeed';
@@ -282,6 +283,8 @@ export default function ClientCardPage() {
           </Field>
         </dl>
       </section>
+
+      <BriefSection clientId={client.id} />
 
       <section className="card">
         <h2>История работы</h2>
