@@ -1,4 +1,4 @@
-package ru.quard0r.kcrbackend.model;
+package ru.quard0r.kcrbackend.auth.model;
 
 import ru.quard0r.kcrbackend.users.model.User;
 

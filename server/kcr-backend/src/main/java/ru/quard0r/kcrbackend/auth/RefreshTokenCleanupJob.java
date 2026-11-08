@@ -1,11 +1,11 @@
-package ru.quard0r.kcrbackend.scheduling;
+package ru.quard0r.kcrbackend.auth;
 
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import ru.quard0r.kcrbackend.service.RefreshTokenService;
+import ru.quard0r.kcrbackend.auth.RefreshTokenService;
 
 @Component
 @RequiredArgsConstructor

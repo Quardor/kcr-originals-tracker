@@ -1,4 +1,4 @@
-package ru.quard0r.kcrbackend.controller;
+package ru.quard0r.kcrbackend.auth;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -10,13 +10,13 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import ru.quard0r.kcrbackend.dto.request.LoginRequest;
-import ru.quard0r.kcrbackend.dto.request.RefreshRequest;
-import ru.quard0r.kcrbackend.dto.request.RegisterRequest;
-import ru.quard0r.kcrbackend.dto.response.AuthResponse;
+import ru.quard0r.kcrbackend.auth.dto.LoginRequest;
+import ru.quard0r.kcrbackend.auth.dto.RefreshRequest;
+import ru.quard0r.kcrbackend.auth.dto.RegisterRequest;
+import ru.quard0r.kcrbackend.auth.dto.AuthResponse;
 import ru.quard0r.kcrbackend.security.AuthRateLimiter;
 import ru.quard0r.kcrbackend.security.CustomUserDetails;
-import ru.quard0r.kcrbackend.service.AuthService;
+import ru.quard0r.kcrbackend.auth.AuthService;
 
 @RestController
 @RequestMapping("/api/v1/auth")

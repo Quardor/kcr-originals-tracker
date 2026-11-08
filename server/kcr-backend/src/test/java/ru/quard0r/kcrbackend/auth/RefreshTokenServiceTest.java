@@ -1,4 +1,4 @@
-package ru.quard0r.kcrbackend.service;
+package ru.quard0r.kcrbackend.auth;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -8,10 +8,10 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
-import ru.quard0r.kcrbackend.model.RefreshToken;
+import ru.quard0r.kcrbackend.auth.model.RefreshToken;
 import ru.quard0r.kcrbackend.users.model.Role;
 import ru.quard0r.kcrbackend.users.model.User;
-import ru.quard0r.kcrbackend.repository.RefreshTokenRepository;
+import ru.quard0r.kcrbackend.auth.repository.RefreshTokenRepository;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;

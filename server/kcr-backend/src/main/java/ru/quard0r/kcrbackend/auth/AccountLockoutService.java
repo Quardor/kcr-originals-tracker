@@ -1,4 +1,4 @@
-package ru.quard0r.kcrbackend.service;
+package ru.quard0r.kcrbackend.auth;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;

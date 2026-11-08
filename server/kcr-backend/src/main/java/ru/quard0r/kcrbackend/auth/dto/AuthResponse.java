@@ -1,4 +1,4 @@
-package ru.quard0r.kcrbackend.dto.response;
+package ru.quard0r.kcrbackend.auth.dto;
 
 import lombok.Builder;
 

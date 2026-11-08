@@ -1,11 +1,11 @@
-package ru.quard0r.kcrbackend.scheduling;
+package ru.quard0r.kcrbackend.auth;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import ru.quard0r.kcrbackend.service.RefreshTokenService;
+import ru.quard0r.kcrbackend.auth.RefreshTokenService;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.mockito.Mockito.verify;

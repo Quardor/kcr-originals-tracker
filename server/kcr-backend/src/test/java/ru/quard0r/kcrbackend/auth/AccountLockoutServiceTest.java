@@ -1,4 +1,4 @@
-package ru.quard0r.kcrbackend.service;
+package ru.quard0r.kcrbackend.auth;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

@@ -1,4 +1,4 @@
-package ru.quard0r.kcrbackend.service;
+package ru.quard0r.kcrbackend.auth;
 
 import lombok.RequiredArgsConstructor;
 import org.hibernate.Hibernate;
@@ -7,9 +7,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import ru.quard0r.kcrbackend.common.error.DomainException;
 import ru.quard0r.kcrbackend.common.error.ErrorCode;
-import ru.quard0r.kcrbackend.model.RefreshToken;
+import ru.quard0r.kcrbackend.auth.model.RefreshToken;
 import ru.quard0r.kcrbackend.users.model.User;
-import ru.quard0r.kcrbackend.repository.RefreshTokenRepository;
+import ru.quard0r.kcrbackend.auth.repository.RefreshTokenRepository;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;

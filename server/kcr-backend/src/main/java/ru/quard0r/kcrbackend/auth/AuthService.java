@@ -1,4 +1,4 @@
-package ru.quard0r.kcrbackend.service;
+package ru.quard0r.kcrbackend.auth;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -8,9 +8,9 @@ import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import ru.quard0r.kcrbackend.dto.request.LoginRequest;
-import ru.quard0r.kcrbackend.dto.request.RegisterRequest;
-import ru.quard0r.kcrbackend.dto.response.AuthResponse;
+import ru.quard0r.kcrbackend.auth.dto.LoginRequest;
+import ru.quard0r.kcrbackend.auth.dto.RegisterRequest;
+import ru.quard0r.kcrbackend.auth.dto.AuthResponse;
 import ru.quard0r.kcrbackend.common.error.DomainException;
 import ru.quard0r.kcrbackend.common.error.ErrorCode;
 import ru.quard0r.kcrbackend.users.model.Role;

@@ -1,4 +1,4 @@
-package ru.quard0r.kcrbackend;
+package ru.quard0r.kcrbackend.auth;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

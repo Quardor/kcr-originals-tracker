@@ -1,4 +1,4 @@
-package ru.quard0r.kcrbackend.service;
+package ru.quard0r.kcrbackend.auth;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -13,9 +13,9 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import ru.quard0r.kcrbackend.dto.request.LoginRequest;
-import ru.quard0r.kcrbackend.dto.request.RegisterRequest;
-import ru.quard0r.kcrbackend.dto.response.AuthResponse;
+import ru.quard0r.kcrbackend.auth.dto.LoginRequest;
+import ru.quard0r.kcrbackend.auth.dto.RegisterRequest;
+import ru.quard0r.kcrbackend.auth.dto.AuthResponse;
 import ru.quard0r.kcrbackend.common.error.DomainException;
 import ru.quard0r.kcrbackend.common.error.ErrorCode;
 import ru.quard0r.kcrbackend.users.model.Role;

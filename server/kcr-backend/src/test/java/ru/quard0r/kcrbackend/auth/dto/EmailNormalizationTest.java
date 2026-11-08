@@ -1,4 +1,4 @@
-package ru.quard0r.kcrbackend.dto.request;
+package ru.quard0r.kcrbackend.auth.dto;
 
 import org.junit.jupiter.api.Test;
 
