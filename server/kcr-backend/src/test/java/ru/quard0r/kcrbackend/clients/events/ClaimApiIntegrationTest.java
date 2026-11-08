@@ -1,4 +1,4 @@
-package ru.quard0r.kcrbackend;
+package ru.quard0r.kcrbackend.clients.events;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
