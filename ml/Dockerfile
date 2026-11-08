@@ -4,6 +4,9 @@ FROM python:3.12-slim AS deps
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
+COPY src/ ./src/
+# Проект ставится в .venv как пакет (src-layout): без src/ uv sync поставил бы
+# только зависимости, и kcr_ml не оказался бы на sys.path рантайма.
 RUN uv sync --frozen --no-dev
 
 FROM python:3.12-slim

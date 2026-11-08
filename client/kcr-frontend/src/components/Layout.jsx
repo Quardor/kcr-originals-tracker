@@ -22,6 +22,9 @@ export default function Layout() {
           <nav className="nav">
             <NavLink to="/clients">Клиенты</NavLink>
             <NavLink to="/today">Сегодня</NavLink>
+            <NavLink to="/ai">AI-чат</NavLink>
+            <NavLink to="/ai/analytics">Аналитика</NavLink>
+            {isAdmin && <NavLink to="/ai/prioritize">Приоритизация</NavLink>}
             {isAdmin && <NavLink to="/import">Импорт</NavLink>}
           </nav>
           <div className="header-user">
