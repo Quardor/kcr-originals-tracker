@@ -29,9 +29,11 @@ uv run ruff check . && uv run ruff format --check .
 uv run pytest
 ```
 
-Docker: `docker compose up --build` (app на :8000); локальный Qwen —
-`docker compose --profile local up` (Ollama на :11434, `LLM_PROVIDER=local`,
-`LLM_BASE_URL=http://ollama:11434/v1`, модель через `docker exec … ollama pull qwen…`).
+Docker: ml входит в единый стенд монорепозитория — `docker compose up -d --build`
+из корня репозитория (см. его [docker-compose.yml](../docker-compose.yml) и
+[.env.example](../.env.example)). Локальный Qwen — `docker compose --profile local up -d ollama`
+там же, затем в корневом `.env`: `LLM_PROVIDER=local`, `LLM_BASE_URL=http://ollama:11434/v1`
+(модель — `docker exec kcr-ollama-1 ollama pull qwen…`).
 
 ## API
 

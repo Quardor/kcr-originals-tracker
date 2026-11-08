@@ -483,7 +483,8 @@ HTTP-статус и сообщение по умолчанию, имя конс
 - `application.yaml` — общая часть: имя приложения, JPA (`ddl-auto=validate`, OSIV выключен),
   сроки токенов; `spring.profiles.default=dev` — без явного профиля (`bootRun`, тесты)
   активен `dev`.
-- `application-dev.yaml` — локальная БД (с 2026-11-08 — контейнер `kcr-backend-db` compose-стенда:
+- `application-dev.yaml` — локальная БД (с 2026-11-08 — контейнер `kcr-db` общего compose-стенда
+  корня репозитория (`docker-compose.yml`, 2026-11-08 перенесён из `server/kcr-backend`; прежде — `kcr-backend-db`):
 `jdbc:postgresql://localhost:5433/kcr`, пользователь `kcr`; ранее — отдельный контейнер
 `postgres` на 5432),
   пользователь по умолчанию `myuser`); секреты — из окружения либо `.env` (см. ниже).
@@ -839,7 +840,7 @@ java -jar build/libs/kcr-backend-0.0.1-SNAPSHOT.jar --create-admin
   (Client, ClientType, WorkStage), repository/, dto/, events/ (история + претензии);
   `PageResponse` переехал в `common/`; snapshot-домен остался слоёным до шага «Динамика»
   (перенос `auth` — отдельный рефакторинг). Dev-профиль переведён на БД compose-стенда
-  (`kcr-backend-db`, localhost:5433/kcr).
+  (теперь `kcr-db` общего стенда корня репозитория, localhost:5433/kcr).
 
 - **операторский цикл** — шаги 1 и 5 §11.8 + события IMPORT из хвоста шага 3 (2026-11-08,
   ветка `feature/operator-cycle`, «Блок А» MVP-критериев 7–13):
