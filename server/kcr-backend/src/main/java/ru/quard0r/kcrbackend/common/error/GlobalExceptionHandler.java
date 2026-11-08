@@ -26,9 +26,6 @@ public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
-    // Имена констрейнтов/индексов уникальности: uk_* — из миграций V1/V3, idx_*_lower —
-    // регистронезависимые функциональные индексы из V7 (п. 30 §10); гонка
-    // «exists-проверка + save» распознаётся по нарушенному констрейнту.
     private static final String UK_USERS_USERNAME = "uk_users_username";
     private static final String UK_USERS_EMAIL = "uk_users_email";
     private static final String IDX_USERS_USERNAME_LOWER = "idx_users_username_lower";
@@ -52,7 +49,6 @@ public class GlobalExceptionHandler {
         return respond(errorCode, new ErrorResponse(errorCode, "Validation failed: " + fieldErrors));
     }
 
-    // Встроенная method-validation параметров контроллера (п. 28 §10: page/size).
     @ExceptionHandler
     ResponseEntity<ErrorResponse> exceptionHandler(HandlerMethodValidationException e) {
         String parameterErrors = e.getParameterValidationResults().stream()
@@ -79,8 +75,6 @@ public class GlobalExceptionHandler {
                 new ErrorResponse(ErrorCode.INVALID_REQUEST_PARAMETER));
     }
 
-    // Без хендлера отсутствующий обязательный параметр уходил бы в catch-all (п. 32 §10)
-    // и превращался бы в 500 вместо клиентской 400.
     @ExceptionHandler
     ResponseEntity<ErrorResponse> exceptionHandler(MissingServletRequestParameterException e) {
         return respond(ErrorCode.INVALID_REQUEST_PARAMETER, new ErrorResponse(ErrorCode.INVALID_REQUEST_PARAMETER,
@@ -105,8 +99,6 @@ public class GlobalExceptionHandler {
         };
     }
 
-    // Hibernate-обёртка несёт имя констрейнта; если её нет в цепочке причин —
-    // парсим сообщение драйвера («... violates unique constraint "uk_..."»).
     private String constraintName(DataIntegrityViolationException e) {
         for (Throwable cause = e.getCause(); cause != null; cause = cause.getCause()) {
             if (cause instanceof ConstraintViolationException hibernate
@@ -119,16 +111,11 @@ public class GlobalExceptionHandler {
         return matcher.find() ? matcher.group(1) : null;
     }
 
-    // Решение об отказе (403 на @PreAuthorize) принимает security-фильтр: исключение
-    // пробрасывается обратно, чтобы уйти из DispatcherServlet в ExceptionTranslationFilter —
-    // иначе catch-all ниже превратил бы отказ авторизации в 500.
     @ExceptionHandler
     void exceptionHandler(AccessDeniedException e) throws AccessDeniedException {
         throw e;
     }
 
-    // Catch-all для непредвиденных исключений (п. 32 §10): единый контракт 500 вместо
-    // дефолтного /error с пустым телом; причина — только в лог, ответ нейтрален.
     @ExceptionHandler
     ResponseEntity<ErrorResponse> exceptionHandler(Exception e) {
         log.error("Unhandled exception", e);

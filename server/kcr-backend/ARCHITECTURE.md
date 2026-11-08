@@ -43,13 +43,26 @@
 
 Группа: `ru.quard0r`, корневой пакет: `ru.quard0r.kcrbackend`.
 
-## 3. Структура пакетов (слоистая архитектура)
+## 3. Структура пакетов (package-by-feature)
+
+Домены — feature-пакеты (§11.5; переход завершён 2026-11-08 веткой
+`refactor/package-by-feature`): контроллер и сервисы — в корне пакета домена,
+`model/`, `repository/`, `dto/` — подпакеты домена; вложенная под-домена
+(`clients/events/`) — по той же схеме.
 
 ```
 ru.quard0r.kcrbackend
 ├── KcrBackendApplication   — точка входа (@SpringBootApplication)
-├── bootstrap/              — инициализация при старте (AdminBootstrap — bootstrap первого
-│                             администратора и команда --create-admin, см. §5)
+├── auth/                   — домен «аутентификация» (2026-11-08): AuthController —
+│                             /api/v1/auth/** (register/login/refresh, §5); AuthService;
+│                             RefreshTokenService — ротация refresh-токенов с
+│                             reuse-detection, AccountLockoutService — счётчик неудачных
+│                             входов и блокировка аккаунта; RefreshTokenCleanupJob —
+│                             ежедневная очистка просроченных refresh-токенов (§5);
+│                             model/ — RefreshToken; repository/ — RefreshTokenRepository;
+│                             dto/ — LoginRequest, RegisterRequest, RefreshRequest
+│                             (нормализация в компакт-конструкторах до Bean Validation,
+│                             см. §5), AuthResponse
 ├── clients/                — домен «клиенты» (feature-пакет §11.5, перенесён 2026-11-08):
 │                             ClientController — /api/v1/clients/** (карточки, фильтры,
 │                             take/assignment/stage, пагинация валидируется constraint-
@@ -73,24 +86,16 @@ ru.quard0r.kcrbackend
 │                             PageLimits + дженерик PageResponse (пагинация, §3/§11.4);
 │                             validation/ — доменные constraint-аннотации @Inn / @Kpp / @KcrCode
 │                             с валидаторами — единый источник правил формата для DTO и
-│                             Excel-парсеров (п. 29 §10)
-├── config/                 — конфигурация Spring (SecurityConfig: security-цепочка, CORS, бины;
-│                             JpaAuditingConfig — @CreatedDate, п. 24 §10)
-├── controller/             — REST-контроллеры вне доменных пакетов (AuthController:
-│                             /api/v1/auth/**, ImportController: /api/v1/import/**,
-│                             UserController: /api/v1/users — справочник для переназначения)
-├── dto/
-│   ├── request/            — входные DTO (records: LoginRequest, RegisterRequest, RefreshRequest;
-│   │                         нормализация в компакт-конструкторах до Bean Validation: email-поля
-│   │                         через common/EmailNormalizer, username/email — через
-│   │                         common/UserIdentityNormalizer, см. §5)
-│   └── response/           — исходящие DTO (records + @Builder: AuthResponse, ErrorResponse,
-│                             SnapshotResponse, UserResponse)
-├── exception/               — контракт ошибок (§6): ErrorCode — enum «код, HTTP-статус,
-│                             сообщение», DomainException — единственное доменное исключение,
+│                             Excel-парсеров (п. 29 §10); error/ — контракт ошибок (§6):
+│                             ErrorCode — enum «код, HTTP-статус, сообщение»,
+│                             DomainException — единственное доменное исключение,
+│                             ErrorResponse — исходящий формат ошибки,
 │                             GlobalExceptionHandler — маппинг в ErrorResponse, включая
 │                             method-validation параметров и catch-all 500 (п. 32 §10)
-├── imports/                — Excel-импорт (feature-пакет §11.5; `import` — ключевое слово Java):
+├── config/                 — конфигурация Spring (SecurityConfig: security-цепочка, CORS, бины;
+│                             JpaAuditingConfig — @CreatedDate, п. 24 §10)
+├── imports/                — Excel-импорт (feature-пакет §11.5, включает ImportController;
+│                             `import` — ключевое слово Java):
 │                             ClientExcelParser / SnapshotExcelParser — тонкие адаптеры реальных
 │                             выгрузок → командные DTO (§11.6); форматы ИНН/КПП/кода KCR
 │                             проверяются общими правилами common/validation; ExcelCells —
@@ -99,27 +104,30 @@ ru.quard0r.kcrbackend
 │                             ClientUpsertService / SnapshotImportService — upsert и применение
 │                             (записывают события IMPORT в историю, §11.2);
 │                             REST-эндпоинты — ImportController (§11.4, 2026-11-04)
-├── model/                  — JPA-сущности вне доменных пакетов (User, RefreshToken,
-│                             DocumentTransferSnapshot) + enum Role
-├── repository/             — Spring Data JPA репозитории (UserRepository, RefreshTokenRepository,
-│                             DocumentTransferSnapshotRepository)
-├── scheduling/             — фоновые задачи (RefreshTokenCleanupJob — ежедневная очистка
-│                             просроченных refresh-токенов, см. §5)
 ├── security/               — JWT-инфраструктура (JwtService — выдача access-токенов,
 │                             JwtAuthenticationConverter — валидированный токен →
 │                             аутентификация (Caffeine-кэш principal'ов),
-│                             CustomUserDetailsService, RestAuthenticationEntryPoint)
+│                             CustomUserDetailsService, UserAuthenticationToken,
+│                             RestAuthenticationEntryPoint)
 │                             + AuthRateLimiter — антибрутфорс-лимитер login/register (см. §5)
-└── service/                — бизнес-логика вне доменных пакетов (AuthService,
-                              RefreshTokenService, AccountLockoutService — счётчик неудачных
-                              входов и блокировка аккаунта)
+├── snapshots/              — домен «срезы» (2026-11-08): model/ — DocumentTransferSnapshot;
+│                             repository/ — DocumentTransferSnapshotRepository; dto/ —
+│                             SnapshotResponse; сервис категоризации динамики (§11.2) —
+│                             следующий шаг домена
+└── users/                  — домен «пользователи» (2026-11-08): UserController —
+                              /api/v1/users (справочник для переназначения ответственного,
+                              только админ, §11.4); UserService; AdminBootstrap — bootstrap
+                              первого администратора и команда --create-admin (§5);
+                              model/ — User, Role; repository/ — UserRepository;
+                              dto/ — UserResponse
 ```
 
-Направление зависимостей строго сверху вниз:
+Направление зависимостей между пакетами (домен → домен — только по стрелкам;
+`common` не импортирует ничего из доменных пакетов):
 
 ```
-controller → service → repository → model
-     ↘ dto ↙            ↘ security ↙
+security → users          auth → users, security
+clients → snapshots       imports → clients, snapshots
 ```
 
 - Контроллер не обращается к репозиториям и не содержит бизнес-логики.
@@ -402,13 +410,13 @@ CHECK-констрейнта). Хранятся varchar + CHECK, PATCH-сема�
    bulk-UPDATE (`resetFailedLogins`: чистый аккаунт не затрагивается).
 
 Очистка: просроченные токены (в том числе уже ротированные) удаляет `RefreshTokenCleanupJob`
-(`scheduling/`, `@EnableScheduling` на `KcrBackendApplication`) — `@Scheduled`-cron
+(`auth/`, `@EnableScheduling` на `KcrBackendApplication`) — `@Scheduled`-cron
 `app.cleanup.refresh-token-cron` (по умолчанию `0 0 4 * * *`, локальная зона сервера) вызывает
 `RefreshTokenService.deleteExpired()` → `deleteByExpiryDateBefore(now)`; без job таблица
 `refresh_tokens` росла бы бесконечно.
 
 Bootstrap первого администратора (п. 27 §10, закрыт 2026-11-02) — `AdminBootstrap`
-(`bootstrap/`, `ApplicationRunner`). Без него после чистого деплоя административный API мёртв:
+(`users/`, `ApplicationRunner`). Без него после чистого деплоя административный API мёртв:
 регистрация всегда создаёт OPERATOR, а создание/правка клиентов защищены `hasRole('ADMIN')`.
 Каждый старт: если пользователей с ролью ADMIN нет (`existsByRole`), учётная запись создаётся
 из `ADMIN_USERNAME`/`ADMIN_PASSWORD` (username — через `UserIdentityNormalizer` к нижнему
@@ -424,7 +432,7 @@ Bootstrap первого администратора (п. 27 §10, закрыт
 
 ## 6. Исключения и контракт ошибок
 
-Единая точка правды об ошибках API — enum `ErrorCode` (пакет `exception/`): каждый код несёт
+Единая точка правды об ошибках API — enum `ErrorCode` (пакет `common/error/`): каждый код несёт
 HTTP-статус и сообщение по умолчанию, имя константы — машиночитаемый код из ответа. Сервисы
 бросают единственное доменное исключение `DomainException(ErrorCode)`; отдельный класс на каждый
 статус не заводится (п. 14 §10, 2026-10-30: прежняя иерархия `BasicException`/`HttpException` +
@@ -1158,24 +1166,12 @@ SECOND_CALL → CLAIM_WORK → COMPLETED`; `IN_POOL` — «администра�
 ### 11.5. Целевая структура пакетов
 
 По п. 26 §10 при появлении второго домена — переход на package-by-feature (импорт, события,
-претензии, ИИ — отдельные домены). Домен «клиенты» переведён 2026-11-08 (`clients/` с
-`events/`, вопрос 6 §11.7 закрыт); перенос `auth` — отдельным рефакторингом; `snapshots/`
-отделятся на шаге «Динамика». Правила слоёв внутри пакетов не меняются (§3):
-
-```
-ru.quard0r.kcrbackend
-├── config/                  — SecurityConfig (CORS — п. 11 §10), бины
-├── security/                — JWT-инфраструктура (как сейчас)
-├── auth/                    — register/login/refresh (перенос из controller/service)
-├── clients/                 — карточки, фильтры, take/assignment/stage, brief
-│   ├── ClientController, ClientService
-│   ├── model/ (Client, WorkStage, DynamicsCategory, …), repository/, dto/
-│   └── events/              — ClientEvent, Claim, Sanction + сервисы
-├── snapshots/               — срезы: модель, выборки динамики, категоризация
-├── imports/                 — Excel-импорт: парсеры (POI) готовы (§3/§9); добавить UpsertService (§11.6)
-├── ai/                      — read-only фасад ИИ-помощника + интеграция с LLM
-└── common/                  — исключения, GlobalExceptionHandler, пагинация
-```
+претензии, ИИ — отдельные домены). Выполнен полностью 2026-11-08 (ветка
+`refactor/package-by-feature`): домен «клиенты» — `clients/` с `events/` (вопрос 6 §11.7
+закрыт), домены `auth/` и `users/` (users выделен из auth: справочник пользователей +
+AdminBootstrap), `snapshots/`, сборка `imports/` целиком и контракт ошибок `common/error/`.
+Актуальное дерево — §3; расхождений с ним больше нет. `ai/` заводится вместе с кодом
+ИИ-фасада. Правила слоёв внутри пакетов не меняются (§3).
 
 ### 11.6. Заменяемость Excel-импорта на API
 
@@ -1211,8 +1207,8 @@ ru.quard0r.kcrbackend
 5. ИИ-помощник: где живёт LLM (прокси-эндпоинт бекенда с ключом из окружения или отдельный сервис
    в `ml/` монорепо), модель и бюджет; состав контрольных сценариев приёмки.
 6. ~~(решение по проекту, не заказчику) Переход на package-by-feature (§11.5).~~ Выполнен
-   2026-11-08 для домена «клиенты» (`clients/` + `clients/events/`); `auth` и `snapshots` —
-   позже.
+   полностью 2026-11-08: `clients/`, `auth/`, `users/`, `snapshots/`, `common/error/`
+   (§3/§11.5).
 
 ### 11.8. Порядок внедрения
 
