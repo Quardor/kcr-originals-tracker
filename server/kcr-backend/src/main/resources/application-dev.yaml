@@ -1,0 +1,17 @@
+spring:
+  config:
+    import: "optional:file:.env[.properties]"
+
+  datasource:
+    # БД живёт в контейнере kcr-backend-db (compose-стенд), на хосте — порт 5433
+    url: jdbc:postgresql://localhost:5433/kcr
+    username: ${DB_USERNAME:kcr}
+    password: ${DB_PASSWORD}
+
+jwt:
+  secret: ${JWT_SECRET}
+
+app:
+  cors:
+    allowed-origins: http://localhost:5173
+

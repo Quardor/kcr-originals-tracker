@@ -1,0 +1,90 @@
+# Единый локальный стенд монорепозитория kcr-originals-tracker:
+#   db       — PostgreSQL (данные в именованном volume kcr-backend_pgdata)
+#   app      — kcr-backend (Spring Boot, :8080)
+#   ml       — kcr-ml, ИИ-помощник (:8000)
+#   frontend — kcr-frontend, nginx: статика SPA + обратный прокси
+#              (/api/v1/ai → ml, остальное /api/v1 → app) — один origin, без CORS
+#   ollama   — (профиль local) локальный Qwen для прод-режима LLM
+# Значения — из .env рядом с этим файлом (шаблон — .env.example).
+
+name: kcr
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: kcr
+      POSTGRES_USER: kcr
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      # 5433 на хосте — не пересекается с dev-контейнером postgres (5432);
+      # само приложение ходит в БД по внутренней сети (db:5432)
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kcr -d kcr"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  app:
+    build: ./server/kcr-backend
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_URL: jdbc:postgresql://db:5432/kcr
+      DB_USERNAME: kcr
+      DB_PASSWORD: ${DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      # Первый ADMIN создаётся при старте, только если таблица пользователей пуста
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      # Через запятую; нужен только при прямом обращении браузера к :8080/:8000 —
+      # через frontend-прокси запросы идут с одного origin и CORS не участвует
+      APP_CORS_ALLOWED_ORIGINS: ${APP_CORS_ALLOWED_ORIGINS:-http://localhost:5173}
+    ports:
+      - "127.0.0.1:8080:8080"
+
+  ml:
+    build: ./ml
+    depends_on:
+      - app
+    environment:
+      # Внутри сети compose бэкенд доступен по имени сервиса app
+      KCR_BACKEND_BASE_URL: ${KCR_BACKEND_BASE_URL:-http://app:8080}
+      AUTH_JWT_SECRET: ${JWT_SECRET}
+      LLM_PROVIDER: ${LLM_PROVIDER:-api}
+      LLM_BASE_URL: ${LLM_BASE_URL}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL}
+      APP_CORS_ALLOWED_ORIGINS: ${APP_CORS_ALLOWED_ORIGINS:-http://localhost:5173}
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  frontend:
+    build: ./client/kcr-frontend
+    depends_on:
+      - app
+      - ml
+    ports:
+      - "127.0.0.1:5173:80"
+
+  # Локальный Qwen: docker compose --profile local up -d ollama,
+  # затем в .env: LLM_PROVIDER=local, LLM_BASE_URL=http://ollama:11434/v1
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["local"]
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+
+volumes:
+  # Имя совпадает с volume прежнего стенда server/kcr-backend (name: kcr-backend):
+  # данные БД переезжают без миграций
+  pgdata:
+    name: kcr-backend_pgdata
+  ollama:

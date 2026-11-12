@@ -1,0 +1,38 @@
+spring:
+  application:
+    name: kcr-backend
+
+  profiles:
+    default: dev
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+    open-in-view: false
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+
+jwt:
+  access-expiration: 900000
+  refresh-expiration: 604800000
+
+app:
+  admin:
+    username: ${ADMIN_USERNAME:}
+    password: ${ADMIN_PASSWORD:}
+  security:
+    auth-rate-limit:
+      capacity: 10
+      refill-duration: 1m
+    account-lockout:
+      max-failed-attempts: 5
+      lock-duration: 15m
+  cleanup:
+    refresh-token-cron: "0 0 4 * * *"
