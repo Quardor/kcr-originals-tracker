@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import ru.quard0r.kcrbackend.common.error.ErrorResponse;
 
@@ -57,6 +58,12 @@ public class GlobalExceptionHandler {
                 .collect(Collectors.joining("; "));
         ErrorCode errorCode = ErrorCode.VALIDATION_FAILED;
         return respond(errorCode, new ErrorResponse(errorCode, "Validation failed: " + parameterErrors));
+    }
+
+    @ExceptionHandler
+    ResponseEntity<ErrorResponse> exceptionHandler(MaxUploadSizeExceededException e) {
+        ErrorCode errorCode = ErrorCode.VALIDATION_FAILED;
+        return respond(errorCode, new ErrorResponse(errorCode, "File size exceeds the maximum limit (10MB)"));
     }
 
     @ExceptionHandler

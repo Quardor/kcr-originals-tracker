@@ -35,7 +35,7 @@ export function clearTokens() {
 
 async function parseErrorResponse(response) {
   let code = null;
-  let message = `HTTP ${response.status}`;
+  let message = response.status === 413 ? 'Файл слишком большой для загрузки' : `HTTP ${response.status}`;
   try {
     const body = await response.json();
     if (body && typeof body.code === 'string') code = body.code;
