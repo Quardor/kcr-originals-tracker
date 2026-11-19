@@ -6,6 +6,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import ru.quard0r.kcrbackend.common.error.ErrorResponse;
 
 import java.sql.SQLException;
@@ -116,6 +117,15 @@ class GlobalExceptionHandlerTest {
 
         assertEquals(HttpStatus.UNAUTHORIZED, response.getStatusCode());
         assertEquals("INVALID_CREDENTIALS", response.getBody().code());
+    }
+
+    @Test
+    void maxUploadSizeExceededMapsToValidationFailed() {
+        ResponseEntity<ErrorResponse> response =
+                handler.exceptionHandler(new MaxUploadSizeExceededException(10485760));
+
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+        assertEquals("VALIDATION_FAILED", response.getBody().code());
     }
 
     private DataIntegrityViolationException integrityViolation(String constraintName) {
