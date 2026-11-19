@@ -1,3 +1,5 @@
+import { dynamicsCategoryLabel } from '../labels';
+
 export function Spinner({ label = 'Загрузка…' }) {
   return (
     <div className="spinner-wrap" role="status">
@@ -32,4 +34,13 @@ export function ClientTypeBadge({ type }) {
 export function TriStateBadge({ value, positive, negative }) {
   if (value === null || value === undefined) return <span className="muted">нет данных</span>;
   return <span className={`badge ${value ? 'badge-on' : 'badge-off'}`}>{value ? positive : negative}</span>;
+}
+
+export function DynamicsBadge({ category }) {
+  if (!category) return <span className="muted">—</span>;
+  return (
+    <span className={`badge badge-dynamics-${category.toLowerCase()}`}>
+      {dynamicsCategoryLabel(category)}
+    </span>
+  );
 }

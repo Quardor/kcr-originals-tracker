@@ -31,4 +31,11 @@ public class DocumentTransferSnapshot {
 
     @Column(nullable = false)
     private Integer notTransferredDocuments;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "dynamics_category")
+    private DynamicsCategory dynamicsCategory;
+
+    @Column(name = "previous_not_transferred")
+    private Integer previousNotTransferred;
 }

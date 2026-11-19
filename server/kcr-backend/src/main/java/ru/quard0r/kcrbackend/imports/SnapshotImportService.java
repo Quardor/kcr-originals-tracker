@@ -15,6 +15,7 @@ import ru.quard0r.kcrbackend.clients.model.Client;
 import ru.quard0r.kcrbackend.clients.repository.ClientRepository;
 import ru.quard0r.kcrbackend.imports.dto.SnapshotPreviewRow;
 import ru.quard0r.kcrbackend.users.model.User;
+import ru.quard0r.kcrbackend.snapshots.DynamicsService;
 import ru.quard0r.kcrbackend.snapshots.model.DocumentTransferSnapshot;
 import ru.quard0r.kcrbackend.snapshots.repository.DocumentTransferSnapshotRepository;
 
@@ -43,6 +44,7 @@ public class SnapshotImportService {
     private final ClientRepository clientRepository;
     private final DocumentTransferSnapshotRepository snapshotRepository;
     private final ClientEventService eventService;
+    private final DynamicsService dynamicsService;
     private final SnapshotExcelParser parser = new SnapshotExcelParser();
 
     public SnapshotImportPreview preview(MultipartFile file, LocalDate snapshotDate, String reportingPeriod) {
@@ -80,13 +82,25 @@ public class SnapshotImportService {
                 unmatchedKcrCodes.add(command.kcrCode());
                 continue;
             }
-            snapshotRepository.save(DocumentTransferSnapshot.builder()
+            List<DocumentTransferSnapshot> existing =
+                    snapshotRepository.findByClientIdOrderBySnapshotDateAscIdAsc(client.getId());
+            Integer previousNotTransferred = existing.isEmpty() ? null
+                    : existing.get(existing.size() - 1).getNotTransferredDocuments();
+
+            DocumentTransferSnapshot snapshot = DocumentTransferSnapshot.builder()
                     .client(client)
                     .reportingPeriod(command.reportingPeriod())
                     .snapshotDate(command.snapshotDate())
                     .totalDocuments(resolveTotal(client, command))
                     .notTransferredDocuments(command.notTransferredDocuments())
-                    .build());
+                    .previousNotTransferred(previousNotTransferred)
+                    .build();
+
+            List<DocumentTransferSnapshot> history = new ArrayList<>(existing);
+            history.add(snapshot);
+            snapshot.setDynamicsCategory(dynamicsService.classifySnapshot(history, client.getCreatedAt()));
+
+            snapshotRepository.save(snapshot);
             eventService.record(client, author, ClientEventType.IMPORT,
                     "Импорт срезов (период «%s», срез %s): не передано %d"
                             .formatted(command.reportingPeriod(), command.snapshotDate(),

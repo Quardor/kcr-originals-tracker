@@ -1316,3 +1316,66 @@ select:focus {
 .ai-brief h4 {
   margin-top: 14px;
 }
+
+
+/* ---------- Список на обзвон и категории динамики ---------- */
+
+.badge-dynamics-no_debt {
+  background: #e8f6e8;
+  color: #2c7a2c;
+}
+
+.badge-dynamics-decreasing {
+  background: #e6f7f1;
+  color: #1d7a5f;
+}
+
+.badge-dynamics-first_occurrence {
+  background: #e7f0ff;
+  color: #23508f;
+}
+
+.badge-dynamics-unchanged_or_growing,
+.badge-dynamics-persistent {
+  background: #fff4e0;
+  color: #8a5a12;
+}
+
+.badge-dynamics-newcomer_risk,
+.badge-dynamics-reappeared {
+  background: #fdeaea;
+  color: #a03030;
+}
+
+.call-list-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  align-items: end;
+  margin-bottom: 20px;
+}
+
+.call-list-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+
+.call-list-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.preview-badge {
+  background: #eff6ff;
+  color: #1e40af;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
