@@ -67,12 +67,13 @@ ru.quard0r.kcrbackend
 │                             ClientController — /api/v1/clients/** (карточки, фильтры,
 │                             take/assignment/stage, пагинация валидируется constraint-
 │                             аннотациями через PageLimits, п. 28 §10), WorklistController —
-│                             /api/v1/worklist/today («сегодня нужно»), ClientService,
+│                             /api/v1/worklist/** (today, preview, generate, call-list),
+│                             ClientService, WorklistService,
 │                             StagePolicy — правила смены этапа по ролям (§11.2);
-│                             model/ — Client, ClientType, WorkStage; repository/ —
-│                             ClientRepository (в т.ч. условный UPDATE взятия); dto/ —
-│                             клиентские request/response (PATCH-семантика «null = не менять»,
-│                             нормализация в компакт-конструкторах до Bean Validation);
+│                             model/ — Client, ClientType, WorkStage, CallListItem;
+│                             repository/ — ClientRepository, CallListItemRepository;
+│                             dto/ — клиентские request/response, WorklistFilterRequest,
+│                             CallListClientResponse, CallListSummaryResponse;
 │                             events/ — единая история и претензионная работа: ClientEvent,
 │                             Claim, Sanction + enum'ы ClientEventType/CallResult/ClaimStatus/
 │                             SanctionStatus, репозитории, ClientEventService (выдача истории
@@ -110,10 +111,11 @@ ru.quard0r.kcrbackend
 │                             CustomUserDetailsService, UserAuthenticationToken,
 │                             RestAuthenticationEntryPoint)
 │                             + AuthRateLimiter — антибрутфорс-лимитер login/register (см. §5)
-├── snapshots/              — домен «срезы» (2026-11-08): model/ — DocumentTransferSnapshot;
-│                             repository/ — DocumentTransferSnapshotRepository; dto/ —
-│                             SnapshotResponse; сервис категоризации динамики (§11.2) —
-│                             следующий шаг домена
+├── snapshots/              — домен «срезы»: DynamicsService — детерминированный расчёт
+│                             категорий динамики срезов (§11.2); model/ —
+│                             DocumentTransferSnapshot, DynamicsCategory; repository/ —
+│                             DocumentTransferSnapshotRepository; dto/ —
+│                             SnapshotResponse, ClientDebtInfo
 └── users/                  — домен «пользователи» (2026-11-08): UserController —
                               /api/v1/users (справочник для переназначения ответственного,
                               только админ, §11.4); UserService; AdminBootstrap — bootstrap
@@ -233,11 +235,32 @@ CLAIM_WORK → COMPLETED` (`V8`, varchar + CHECK). `IN_POOL` — админис�
 | snapshotDate | LocalDate | not null — дата, на которую актуальны данные |
 | totalDocuments | Integer | опционален; CHECK (>= 0) |
 | notTransferredDocuments | Integer | not null; CHECK (>= 0 и <= totalDocuments, когда total задан) |
+| dynamicsCategory | DynamicsCategory | enum, опционален; колонка `dynamics_category varchar(32)` + CHECK по списку значений (`V11__snapshot_dynamics_and_call_list.sql`) |
+| previousNotTransferred | Integer | опционален; колонка `previous_not_transferred int` — значение долга из предшествующего среза |
 
 Индекс `idx_document_transfer_snapshots_client_period_date (client_id, reporting_period,
 snapshot_date)` покрывает выборку динамики по клиенту/периоду и поиск последнего среза для
 наследования total (индекс на FK создаётся явно — Postgres не строит их автоматически; то же
 для `refresh_tokens.user_id`, см. выше).
+
+### DynamicsCategory (enum)
+`NO_DEBT`, `FIRST_OCCURRENCE`, `DECREASING`, `UNCHANGED_OR_GROWING`, `REAPPEARED`,
+`PERSISTENT`, `NEWCOMER_RISK` (`V11`, varchar + CHECK). Детерминированный расчёт
+выполняется `snapshots/DynamicsService` по правилам §11.2 при импорте и выборках.
+
+### CallListItem (`call_list_items`)
+Единый закреплённый список на обзвон (пул обзвона, §11.4; `V11__snapshot_dynamics_and_call_list.sql`):
+администратор выставляет фильтры по долгу, проценту непереданных и низкой динамике, предпросматривает
+список и закрепляет его для всех операторов. Список один для всех; изменять и пересоставлять его
+может только администратор.
+
+| Поле | Тип | Ограничения |
+|---|---|---|
+| id | Long | PK, IDENTITY |
+| client | Client | @ManyToOne LAZY, not null, unique (`uk_call_list_items_client`, ON DELETE CASCADE) |
+| createdBy | User | @ManyToOne LAZY, not null — администратор, закрепивший список |
+| createdAt | Instant | not null — момент фиксации списка |
+| position | Integer | not null, default 0 — порядок отображения в пуле (индекс `idx_call_list_items_position`) |
 
 ### ClientEvent (`client_events`)
 Единая история клиента (сценарии 6, 9, 10, 12 ТЗ; `V9__client_event.sql`): любая мутация
@@ -886,6 +909,28 @@ java -jar build/libs/kcr-backend-0.0.1-SNAPSHOT.jar --create-admin
     `ClaimApiIntegrationTest`, IMPORT-события в `ImportApiIntegrationTest`, справочник
     пользователей; `./gradlew build` проходит (139 тестов).
 
+- **динамика срезов и единый список на обзвон** — шаги 2 и 4 §11.8 (2026-11-18, миграция
+  `V11__snapshot_dynamics_and_call_list.sql`):
+  - `V11`: колонки `document_transfer_snapshots.dynamics_category` (enum DynamicsCategory)
+    и `previous_not_transferred`, таблица `call_list_items` (единый закреплённый список на обзвон);
+  - `snapshots/DynamicsService`: детерминированный расчёт 7 категорий динамики (§11.2) и
+    сводной долговой информации `ClientDebtInfo`; расчёт и сохранение динамики при импорте срезов
+    (`SnapshotImportService`);
+  - `clients/WorklistService` и `WorklistController`:
+    - `POST /api/v1/worklist/preview` (только ADMIN): предпросмотр списка клиентов с фильтрацией
+      по долговой информации (наличие долга, minDebt), проценту непереданных (порог 5% по ТЗ)
+      и низкой динамике (`UNCHANGED_OR_GROWING`, `PERSISTENT`);
+    - `POST /api/v1/worklist/generate` (только ADMIN): фиксация отобранных клиентов в единый
+      список на обзвон для всех операторов; клиенты на этапе `NOT_IN_WORK` автоматически
+      переводятся в этап `IN_POOL` с системной записью в истории клиента;
+    - `GET /api/v1/worklist/call-list` (ADMIN и OPERATOR): получение единого закреплённого списка;
+    - `DELETE /api/v1/worklist/call-list` (только ADMIN): очистка списка;
+  - фронтенд `client/kcr-frontend`: страница «Список на обзвон» (`/call-list`) с вкладками
+    закреплённого списка и панели фильтрации/предпросмотра для администратора, бейджи динамики
+    (`DynamicsBadge`), кнопка «Взять в работу» для операторов прямо из закреплённого пула;
+  - тесты: `DynamicsServiceTest` (10), `WorklistServiceTest` (4), `WorklistControllerTest` (4);
+    сборка и юнит-тесты зелёные.
+
 Выявленные проблемы и требуемые изменения собраны в §10 (архитектурные ревью 2026-10-24
 и 2026-10-29); ранее перечислявшиеся здесь «известные особенности» включены туда.
 
@@ -1076,8 +1121,7 @@ java -jar build/libs/kcr-backend-0.0.1-SNAPSHOT.jar --create-admin
 | next_contact_at | DATE, nullable | следующий контакт (обновляется событием звонка) |
 | created_at | TIMESTAMP, not null | появление в сервисе — база правила «новичок < 6 месяцев» |
 
-Доработка `document_transfer_snapshots` (запланированная `V11__snapshot_dynamics.sql`, шаг 2 §11.8;
-номера V5–V7 заняты миграциями auth, имена §11.3 перенумерованы 2026-11-08):
+Доработка `document_transfer_snapshots` и `call_list_items` (миграция `V11__snapshot_dynamics_and_call_list.sql`, реализовано 2026-11-18):
 
 | Поле | Тип | Назначение |
 |---|---|---|
@@ -1138,9 +1182,12 @@ SECOND_CALL → CLAIM_WORK → COMPLETED`; `IN_POOL` — «администра�
 
 | Метод и путь | Назначение |
 |---|---|
-| `GET /api/v1/worklist/available` | свободные клиенты из пула — для операторов (шаг 4 §11.8) |
 | `GET /api/v1/worklist/today` | «сегодня нужно»: `next_contact_at <= сегодня`; оператору — свои, админу — все |
-| `POST /api/v1/worklist` | админ: перевести отобранных клиентов в пул (`IN_POOL`) — после фильтров или ИИ-выборки (шаг 4 §11.8) |
+| `POST /api/v1/worklist/preview` | админ: предпросмотр списка на обзвон по фильтрам (долг, % непереданных, низкая динамика) |
+| `POST /api/v1/worklist/generate` | админ: закрепить список на обзвон в общий пул (`IN_POOL`) для всех операторов |
+| `GET /api/v1/worklist/call-list` | единый закреплённый список на обзвон для всех операторов (обе роли) |
+| `DELETE /api/v1/worklist/call-list` | админ: очистить закреплённый список на обзвон |
+| `GET /api/v1/worklist/available` | свободные клиенты из пула — для операторов (шаг 4 §11.8) |
 | `GET /api/v1/stats/summary` | счётчики по категориям динамики (шаг 4 §11.8) |
 
 Импорт (Excel, multipart, Apache POI; парсеры-адаптеры — §9, upsert-сервисы и эндпоинты —
@@ -1220,16 +1267,18 @@ AdminBootstrap), `snapshots/`, сборка `imports/` целиком и кон�
    `V8` (поля процесса) + `V9` (`client_events`); создание и выдача событий (звонок обновляет
    `next_contact_at`/stage), `take`/`assignment`/`stage` с атомарностью взятия,
    `GET /worklist/today`; фронтенд — «Сегодня», карточка с историей и претензиями.
-2. **Динамика** (запланированная `V11`): сервис категоризации срезов,
-   `previous_not_transferred`, фильтры по динамике в списке.
+2. **Динамика** — ✅ готово (`V11` + `DynamicsService`, 2026-11-18): детерминированный
+   расчёт 7 категорий динамики (§11.2), колонки `dynamics_category` и `previous_not_transferred`,
+   автоматический расчёт при импорте срезов (`SnapshotImportService`).
 3. **Excel-импорт**: парсеры-адаптеры клиентов и срезов (2026-10-27, пакет `imports`,
    §9); upsert-сервисы (`ClientUpsertService` — upsert по коду KCR без удаления отсутствующих,
    patch-семантика обновления; `SnapshotImportService` — наследование `total_documents`,
    несопоставленные коды в отчёте) и эндпоинты preview/применение с отчётами (`ImportController`,
-   §11.4) — 2026-11-04, ветка `feature/client`; фильтр по отчётному периоду — 2026-11-08.
-   Осталось: пересчёт категорий — вместе с динамикой (п. 2); события `IMPORT` — ✅ 2026-11-08.
-4. **Пул и статистика**: `POST /worklist` (перевод в `IN_POOL`), `GET /worklist/available`,
-   `GET /stats/summary`.
+   §11.4) — 2026-11-04, ветка `feature/client`; фильтр по отчётному периоду — 2026-11-08;
+   пересчёт категорий — ✅ 2026-11-18; события `IMPORT` — ✅ 2026-11-08.
+4. **Пул и статистика**: единый закреплённый список на обзвон — ✅ готово (`V11` +
+   `call_list_items`, `POST /worklist/preview`, `POST /worklist/generate` с переводом в `IN_POOL`,
+   `GET /worklist/call-list`, 2026-11-18); `GET /worklist/available` и `GET /stats/summary` — остаток шага.
 5. **Претензии и санкции** — ✅ готово (`V10` + API, 2026-11-08, вместе с п. 1).
 6. **ИИ-помощник**: read-only фасад (`brief`, `questions`, `prioritize`), интеграция LLM,
    контрольные сценарии.

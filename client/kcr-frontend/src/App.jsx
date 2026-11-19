@@ -5,6 +5,7 @@ import Protected from './components/Protected';
 import AiAnalyticsPage from './pages/AiAnalyticsPage';
 import AiChatPage from './pages/AiChatPage';
 import AiPrioritizePage from './pages/AiPrioritizePage';
+import CallListPage from './pages/CallListPage';
 import ClientCardPage from './pages/ClientCardPage';
 import ClientFormPage from './pages/ClientFormPage';
 import ClientsPage from './pages/ClientsPage';
@@ -32,6 +33,7 @@ export default function App() {
             <Route index element={<Navigate to="/clients" replace />} />
             <Route path="clients" element={<ClientsPage />} />
             <Route path="today" element={<TodayPage />} />
+            <Route path="call-list" element={<CallListPage />} />
             <Route path="ai" element={<AiChatPage />} />
             <Route
               path="ai/prioritize"
