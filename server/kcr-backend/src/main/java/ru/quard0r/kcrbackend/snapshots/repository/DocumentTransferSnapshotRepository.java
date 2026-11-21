@@ -25,4 +25,14 @@ public interface DocumentTransferSnapshotRepository extends JpaRepository<Docume
      */
     @Query("SELECT s FROM DocumentTransferSnapshot s WHERE s.client.id IN :clientIds")
     List<DocumentTransferSnapshot> findByClientIdIn(@Param("clientIds") Collection<Long> clientIds);
+
+    /**
+     * Загрузить всю историю снапшотов для набора клиентов одним запросом, отсортированную по
+     * клиенту → дате → id. Используется при батч-импорте для расчёта динамики без N отдельных
+     * SELECT-ов на клиента.
+     */
+    @Query("SELECT s FROM DocumentTransferSnapshot s WHERE s.client.id IN :clientIds " +
+           "ORDER BY s.client.id ASC, s.snapshotDate ASC, s.id ASC")
+    List<DocumentTransferSnapshot> findByClientIdInOrderByClientIdAscSnapshotDateAscIdAsc(
+            @Param("clientIds") Collection<Long> clientIds);
 }

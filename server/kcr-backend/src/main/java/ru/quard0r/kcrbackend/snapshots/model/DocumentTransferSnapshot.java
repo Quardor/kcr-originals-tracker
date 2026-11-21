@@ -14,7 +14,9 @@ import java.time.LocalDate;
 public class DocumentTransferSnapshot {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "document_transfer_snapshots_seq")
+    @SequenceGenerator(name = "document_transfer_snapshots_seq",
+            sequenceName = "document_transfer_snapshots_seq", allocationSize = 50)
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)

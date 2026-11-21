@@ -19,7 +19,8 @@ import java.util.List;
 public class Client {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "clients_seq")
+    @SequenceGenerator(name = "clients_seq", sequenceName = "clients_seq", allocationSize = 50)
     private Long id;
 
     @Column(nullable = false, unique = true)
