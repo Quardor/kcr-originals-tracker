@@ -9,7 +9,8 @@ import ru.quard0r.kcrbackend.common.error.ErrorCode;
 import ru.quard0r.kcrbackend.imports.dto.SnapshotCreateCommand;
 import ru.quard0r.kcrbackend.imports.dto.SnapshotImportPreview;
 import ru.quard0r.kcrbackend.imports.dto.SnapshotImportReport;
-import ru.quard0r.kcrbackend.clients.events.ClientEventService;
+import ru.quard0r.kcrbackend.clients.events.ClientEvent;
+import ru.quard0r.kcrbackend.clients.events.ClientEventRepository;
 import ru.quard0r.kcrbackend.clients.events.ClientEventType;
 import ru.quard0r.kcrbackend.clients.model.Client;
 import ru.quard0r.kcrbackend.clients.repository.ClientRepository;
@@ -22,20 +23,26 @@ import ru.quard0r.kcrbackend.snapshots.repository.DocumentTransferSnapshotReposi
 import java.io.IOException;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Snapshot import over the Excel adapter (ARCHITECTURE.md §11.8 item 3): the caller selects
- * the reporting period (ТЗ scenario 2) and only matching sheets are imported, snapshots are
+ * Snapshot import over the Excel adapter: the caller selects
+ * the reporting period and only matching sheets are imported, snapshots are
  * created only for rows whose KCR code matches an existing client; unmatched codes are
  * reported, never failed. The real export carries only the "not transferred" counter — the
- * total is inherited from the latest snapshot of the same client and period
- * (ARCHITECTURE.md §4). Apply leaves an IMPORT event per created snapshot in the unified
+ * total is inherited from the latest snapshot of the same client and period.
+ * Apply leaves an IMPORT event per created snapshot in the unified
  * history (author — the uploading admin); recalculation of dynamics categories lands with
- * the dynamics step (§11.8 item 2).
+ * the dynamics step.
+ *
+ * <p>Performance: existing snapshot history is loaded in one batch query per import
+ * (instead of N per-client SELECTs), snapshots and audit events are saved in one
+ * batch each via saveAll. Requires hibernate.jdbc.batch_size + SEQUENCE id generation
+ * (see application.yaml / V12).
  */
 @Service
 @RequiredArgsConstructor
@@ -43,7 +50,7 @@ public class SnapshotImportService {
 
     private final ClientRepository clientRepository;
     private final DocumentTransferSnapshotRepository snapshotRepository;
-    private final ClientEventService eventService;
+    private final ClientEventRepository eventRepository;
     private final DynamicsService dynamicsService;
     private final SnapshotExcelParser parser = new SnapshotExcelParser();
 
@@ -73,17 +80,39 @@ public class SnapshotImportService {
         ParseResult<SnapshotCreateCommand> result = parse(file, snapshotDate, reportingPeriod);
         Map<String, Client> clients = loadClients(result.getCommands());
 
-        int created = 0;
         List<String> unmatchedKcrCodes = new ArrayList<>();
         List<ParseIssue> issues = new ArrayList<>(result.getIssues());
+
+        List<SnapshotCreateCommand> matched = new ArrayList<>();
         for (SnapshotCreateCommand command : result.getCommands()) {
-            Client client = clients.get(command.kcrCode());
-            if (client == null) {
+            if (clients.containsKey(command.kcrCode())) {
+                matched.add(command);
+            } else {
                 unmatchedKcrCodes.add(command.kcrCode());
-                continue;
             }
+        }
+
+        if (matched.isEmpty()) {
+            return new SnapshotImportReport(0, unmatchedKcrCodes, result.getSkippedSheets(), issues);
+        }
+
+        List<Long> clientIds = matched.stream()
+                .map(c -> clients.get(c.kcrCode()).getId())
+                .distinct()
+                .toList();
+        Map<Long, List<DocumentTransferSnapshot>> historyByClientId =
+                snapshotRepository.findByClientIdInOrderByClientIdAscSnapshotDateAscIdAsc(clientIds)
+                        .stream()
+                        .collect(Collectors.groupingBy(s -> s.getClient().getId()));
+
+        List<DocumentTransferSnapshot> toSave = new ArrayList<>(matched.size());
+        List<ClientEvent> events = new ArrayList<>(matched.size());
+
+        for (SnapshotCreateCommand command : matched) {
+            Client client = clients.get(command.kcrCode());
             List<DocumentTransferSnapshot> existing =
-                    snapshotRepository.findByClientIdOrderBySnapshotDateAscIdAsc(client.getId());
+                    historyByClientId.getOrDefault(client.getId(), List.of());
+
             Integer previousNotTransferred = existing.isEmpty() ? null
                     : existing.get(existing.size() - 1).getNotTransferredDocuments();
 
@@ -91,7 +120,7 @@ public class SnapshotImportService {
                     .client(client)
                     .reportingPeriod(command.reportingPeriod())
                     .snapshotDate(command.snapshotDate())
-                    .totalDocuments(resolveTotal(client, command))
+                    .totalDocuments(resolveTotalFromHistory(existing, command))
                     .notTransferredDocuments(command.notTransferredDocuments())
                     .previousNotTransferred(previousNotTransferred)
                     .build();
@@ -100,14 +129,21 @@ public class SnapshotImportService {
             history.add(snapshot);
             snapshot.setDynamicsCategory(dynamicsService.classifySnapshot(history, client.getCreatedAt()));
 
-            snapshotRepository.save(snapshot);
-            eventService.record(client, author, ClientEventType.IMPORT,
-                    "Импорт срезов (период «%s», срез %s): не передано %d"
+            toSave.add(snapshot);
+            events.add(ClientEvent.builder()
+                    .client(client)
+                    .author(author)
+                    .type(ClientEventType.IMPORT)
+                    .comment("Импорт срезов (период «%s», срез %s): не передано %d"
                             .formatted(command.reportingPeriod(), command.snapshotDate(),
-                                    command.notTransferredDocuments()));
-            created++;
+                                    command.notTransferredDocuments()))
+                    .build());
         }
-        return new SnapshotImportReport(created, unmatchedKcrCodes, result.getSkippedSheets(), issues);
+
+        snapshotRepository.saveAll(toSave);
+        eventRepository.saveAll(events);
+
+        return new SnapshotImportReport(toSave.size(), unmatchedKcrCodes, result.getSkippedSheets(), issues);
     }
 
     private ParseResult<SnapshotCreateCommand> parse(MultipartFile file, LocalDate snapshotDate,
@@ -138,6 +174,20 @@ public class SnapshotImportService {
         return clientRepository.findByKcrCodeIn(commands.stream().map(SnapshotCreateCommand::kcrCode).toList())
                 .stream()
                 .collect(Collectors.toMap(Client::getKcrCode, Function.identity()));
+    }
+
+    private Integer resolveTotalFromHistory(List<DocumentTransferSnapshot> history,
+                                            SnapshotCreateCommand command) {
+        if (command.totalDocuments() != null) {
+            return command.totalDocuments();
+        }
+        for (int i = history.size() - 1; i >= 0; i--) {
+            DocumentTransferSnapshot s = history.get(i);
+            if (command.reportingPeriod().equals(s.getReportingPeriod())) {
+                return s.getTotalDocuments();
+            }
+        }
+        return null;
     }
 
     private Integer resolveTotal(Client client, SnapshotCreateCommand command) {

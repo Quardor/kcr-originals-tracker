@@ -9,7 +9,8 @@ import ru.quard0r.kcrbackend.common.error.ErrorCode;
 import ru.quard0r.kcrbackend.imports.dto.ClientImportPreview;
 import ru.quard0r.kcrbackend.imports.dto.ClientImportReport;
 import ru.quard0r.kcrbackend.imports.dto.ClientImportRow;
-import ru.quard0r.kcrbackend.clients.events.ClientEventService;
+import ru.quard0r.kcrbackend.clients.events.ClientEvent;
+import ru.quard0r.kcrbackend.clients.events.ClientEventRepository;
 import ru.quard0r.kcrbackend.clients.events.ClientEventType;
 import ru.quard0r.kcrbackend.clients.model.Client;
 import ru.quard0r.kcrbackend.clients.repository.ClientRepository;
@@ -30,13 +31,17 @@ import java.util.stream.Collectors;
  * schema and must not be wiped. A new client without INN or organization name cannot be
  * created and is reported as a row issue. Apply leaves an IMPORT event per touched client
  * in the unified history (author — the uploading admin, §11.2).
+ *
+ * <p>Performance: clients and events are saved in a single batch each (saveAll), which lets
+ * Hibernate's JDBC batching flush them in one round-trip instead of N individual statements.
+ * Requires hibernate.jdbc.batch_size + SEQUENCE id generation (see application.yaml / V12).
  */
 @Service
 @RequiredArgsConstructor
 public class ClientUpsertService {
 
     private final ClientRepository clientRepository;
-    private final ClientEventService eventService;
+    private final ClientEventRepository eventRepository;
     private final ClientExcelParser parser = new ClientExcelParser();
 
     public ClientImportPreview preview(MultipartFile file) {
@@ -67,9 +72,10 @@ public class ClientUpsertService {
         ParseResult<ClientUpsertCommand> result = parse(file);
         Map<String, Client> existing = loadExisting(result.getCommands());
 
-        int created = 0;
-        int updated = 0;
+        List<Client> toCreate = new ArrayList<>();
+        List<Client> toUpdate = new ArrayList<>();
         List<ParseIssue> issues = new ArrayList<>(result.getIssues());
+
         for (ClientUpsertCommand command : result.getCommands()) {
             Client client = existing.get(command.kcrCode());
             if (client == null) {
@@ -77,17 +83,26 @@ public class ClientUpsertService {
                     issues.add(missingCardIssue(command));
                     continue;
                 }
-                client = clientRepository.save(toNewClient(command));
-                eventService.record(client, author, ClientEventType.IMPORT, "Импорт клиентов: создан");
-                created++;
+                toCreate.add(toNewClient(command));
             } else {
                 patch(client, command);
-                clientRepository.save(client);
-                eventService.record(client, author, ClientEventType.IMPORT, "Импорт клиентов: обновлён");
-                updated++;
+                toUpdate.add(client);
             }
         }
-        return new ClientImportReport(created, updated, issues);
+
+        List<Client> savedNew = clientRepository.saveAll(toCreate);
+        clientRepository.saveAll(toUpdate);
+
+        List<ClientEvent> events = new ArrayList<>(savedNew.size() + toUpdate.size());
+        for (Client c : savedNew) {
+            events.add(buildEvent(c, author, ClientEventType.IMPORT, "Импорт клиентов: создан"));
+        }
+        for (Client c : toUpdate) {
+            events.add(buildEvent(c, author, ClientEventType.IMPORT, "Импорт клиентов: обновлён"));
+        }
+        eventRepository.saveAll(events);
+
+        return new ClientImportReport(savedNew.size(), toUpdate.size(), issues);
     }
 
     private ParseResult<ClientUpsertCommand> parse(MultipartFile file) {
@@ -189,6 +204,15 @@ public class ClientUpsertService {
         if (command.contactEmail() != null) {
             client.setContactEmail(command.contactEmail());
         }
+    }
+
+    private ClientEvent buildEvent(Client client, User author, ClientEventType type, String comment) {
+        return ClientEvent.builder()
+                .client(client)
+                .author(author)
+                .type(type)
+                .comment(comment)
+                .build();
     }
 
     private boolean isBlank(String value) {
