@@ -29,21 +29,6 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-/**
- * Snapshot import over the Excel adapter: the caller selects
- * the reporting period and only matching sheets are imported, snapshots are
- * created only for rows whose KCR code matches an existing client; unmatched codes are
- * reported, never failed. The real export carries only the "not transferred" counter — the
- * total is inherited from the latest snapshot of the same client and period.
- * Apply leaves an IMPORT event per created snapshot in the unified
- * history (author — the uploading admin); recalculation of dynamics categories lands with
- * the dynamics step.
- *
- * <p>Performance: existing snapshot history is loaded in one batch query per import
- * (instead of N per-client SELECTs), snapshots and audit events are saved in one
- * batch each via saveAll. Requires hibernate.jdbc.batch_size + SEQUENCE id generation
- * (see application.yaml / V12).
- */
 @Service
 @RequiredArgsConstructor
 public class SnapshotImportService {

@@ -10,11 +10,6 @@ import ru.quard0r.kcrbackend.common.error.ErrorCode;
 
 import java.time.Duration;
 
-/**
- * Rate limiting публичных эндпоинтов аутентификации (антибрутфорс): token bucket
- * (Bucket4j) на пару username+IP. Бакеты живут в памяти инстанса — при нескольких
- * инстансах каждый считает лимит независимо (общий store — при необходимости позже).
- */
 @Component
 public class AuthRateLimiter {
 

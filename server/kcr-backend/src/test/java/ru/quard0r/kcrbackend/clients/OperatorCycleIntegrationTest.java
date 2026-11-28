@@ -31,10 +31,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/**
- * Операторский цикл (§11.4, шаг 1 §11.8): атомарное взятие, события истории с
- * автором и временем, правила смены этапа, «сегодня нужно», переназначение.
- */
 @SpringBootTest
 @AutoConfigureMockMvc
 class OperatorCycleIntegrationTest {
@@ -74,14 +70,12 @@ class OperatorCycleIntegrationTest {
         String adminToken = registerAndLogin("opr-adm-" + suffix, true);
         Long operatorId = userId("opr-a-" + suffix);
 
-        // взятие: оператор занимает свободного клиента
         mockMvc.perform(post("/api/v1/clients/" + clientId + "/take")
                         .header("Authorization", "Bearer " + operatorToken))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("\"assigneeUsername\":\"opr-a-" + suffix + "\"")))
                 .andExpect(content().string(containsString("\"stage\":\"NOT_IN_WORK\"")));
 
-        // второй оператор того же клиента не занимает (конкурентность — ниже отдельным тестом)
         mockMvc.perform(post("/api/v1/clients/" + clientId + "/take")
                         .header("Authorization", "Bearer " + otherOperatorToken))
                 .andExpect(status().isConflict())
@@ -91,7 +85,6 @@ class OperatorCycleIntegrationTest {
                         .header("Authorization", "Bearer " + operatorToken))
                 .andExpect(status().isNotFound());
 
-        // звонок: результат, договорённость, срок клиента, следующий контакт, запись, этап
         LocalDate nextContact = LocalDate.now().plusDays(2);
         mockMvc.perform(post("/api/v1/clients/" + clientId + "/events")
                         .header("Authorization", "Bearer " + operatorToken)
@@ -112,7 +105,6 @@ class OperatorCycleIntegrationTest {
         assertEquals("FIRST_CALL", jdbcTemplate.queryForObject(
                 "SELECT stage FROM clients WHERE id = ?", String.class, clientId));
 
-        // история: новые → старые; CALL создан после события о смене этапа
         mockMvc.perform(get("/api/v1/clients/" + clientId + "/events")
                         .header("Authorization", "Bearer " + otherOperatorToken))
                 .andExpect(status().isOk())
@@ -130,7 +122,6 @@ class OperatorCycleIntegrationTest {
                 .andExpect(jsonPath("$.content.length()").value(1))
                 .andExpect(jsonPath("$.content[0].type").value("ASSIGNEE_CHANGED"));
 
-        // контракт событий: системные типы вручную не заводятся, поля звонка — только у CALL
         mockMvc.perform(post("/api/v1/clients/" + clientId + "/events")
                         .header("Authorization", "Bearer " + operatorToken)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -158,7 +149,6 @@ class OperatorCycleIntegrationTest {
                         .content("{\"type\":\"LETTER_SENT\",\"comment\":\"Отправил требование\"}"))
                 .andExpect(status().isCreated());
 
-        // этапы: оператор — свои клиенты и рабочие этапы; админ — любые
         mockMvc.perform(patch("/api/v1/clients/" + clientId + "/stage")
                         .header("Authorization", "Bearer " + operatorToken)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -185,7 +175,6 @@ class OperatorCycleIntegrationTest {
                         .content("{\"stage\":\"NOT_IN_WORK\"}"))
                 .andExpect(status().isOk());
 
-        // «сегодня нужно»: срок наступил — клиент у своего оператора и у админа
         jdbcTemplate.update("UPDATE clients SET next_contact_at = CURRENT_DATE WHERE id = ?", clientId);
 
         mockMvc.perform(get("/api/v1/worklist/today")
@@ -203,7 +192,6 @@ class OperatorCycleIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString(kcrCode)));
 
-        // фильтры списка: этап и ответственный
         mockMvc.perform(get("/api/v1/clients").param("search", kcrCode.substring(3))
                         .param("stage", "NOT_IN_WORK")
                         .header("Authorization", "Bearer " + adminToken))
@@ -228,7 +216,6 @@ class OperatorCycleIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(content().string(not(containsString(kcrCode))));
 
-        // переназначение и освобождение — только админ
         Long otherOperatorId = userId("opr-b-" + suffix);
         mockMvc.perform(patch("/api/v1/clients/" + clientId + "/assignment")
                         .header("Authorization", "Bearer " + operatorToken)
@@ -257,7 +244,6 @@ class OperatorCycleIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("\"assigneeUsername\":null")));
 
-        // справочник пользователей для переназначения — только админ
         mockMvc.perform(get("/api/v1/users")
                         .header("Authorization", "Bearer " + operatorToken))
                 .andExpect(status().isForbidden());

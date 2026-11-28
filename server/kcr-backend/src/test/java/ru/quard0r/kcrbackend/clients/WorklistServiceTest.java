@@ -89,7 +89,6 @@ class WorklistServiceTest
                 .createdAt(LocalDate.of(2022, 1, 1).atStartOfDay().toInstant(ZoneOffset.UTC))
                 .build();
 
-        // client1: два среза с 10 непереданными → UNCHANGED_OR_GROWING
         snap0 = DocumentTransferSnapshot.builder()
                 .id(100L)
                 .client(client1)
@@ -108,7 +107,6 @@ class WorklistServiceTest
                 .notTransferredDocuments(10)
                 .build();
 
-        // client2: 0 непереданных → NO_DEBT
         snap2 = DocumentTransferSnapshot.builder()
                 .id(102L)
                 .client(client2)
@@ -131,7 +129,6 @@ class WorklistServiceTest
 
         List<CallListClientResponse> preview = worklistService.previewCallList(request);
 
-        // Только client1 подходит: долг 10 >= 1, процент 50% >= 5%, динамика UNCHANGED_OR_GROWING
         assertEquals(1, preview.size());
         assertEquals(client1.getId(), preview.get(0).clientId());
         assertEquals(10, preview.get(0).notTransferredDocuments());

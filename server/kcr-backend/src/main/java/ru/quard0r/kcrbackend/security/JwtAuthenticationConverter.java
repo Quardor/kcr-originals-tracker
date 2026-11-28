@@ -12,13 +12,6 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 
-/**
- * Конвертер ресурсного сервера: валидированный (подпись/срок — NimbusJwtDecoder) токен →
- * аутентификация с principal `CustomUserDetails`. Пользователь загружается по id из subject
- * через Caffeine-кэш с коротким TTL — горячий путь не ходит в БД на каждый запрос, при этом
- * удаление пользователя и смена роли подхватываются в пределах TTL. Любая неудача —
- * AuthenticationException → 401 от RestAuthenticationEntryPoint (не 500).
- */
 @Component
 public class JwtAuthenticationConverter implements Converter<Jwt, AbstractAuthenticationToken> {
 
@@ -45,7 +38,6 @@ public class JwtAuthenticationConverter implements Converter<Jwt, AbstractAuthen
         try {
             return Long.parseLong(jwt.getSubject());
         } catch (NumberFormatException e) {
-            // Токены, выданные до перевода subject на id (п. 13 §10), невалидны.
             throw new InvalidBearerTokenException("Token subject is not a user id");
         }
     }
@@ -60,7 +52,6 @@ public class JwtAuthenticationConverter implements Converter<Jwt, AbstractAuthen
             principals.put(userId, loaded);
             return loaded;
         } catch (UsernameNotFoundException e) {
-            // Подпись верна, но пользователя больше нет — токен не принимается.
             throw new InvalidBearerTokenException("Unknown user: " + userId);
         }
     }

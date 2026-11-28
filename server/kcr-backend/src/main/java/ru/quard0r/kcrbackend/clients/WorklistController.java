@@ -25,7 +25,6 @@ import ru.quard0r.kcrbackend.security.CustomUserDetails;
 
 import java.util.List;
 
-/** Рабочие списки операторов (§11.4 ARCHITECTURE.md). */
 @RestController
 @RequestMapping("/api/v1/worklist")
 @RequiredArgsConstructor
@@ -34,7 +33,6 @@ public class WorklistController
     private final ClientService clientService;
     private final WorklistService worklistService;
 
-    /** «Сегодня нужно»: срок следующего контакта наступил; оператору — свои, админу — все. */
     @GetMapping("/today")
     public ResponseEntity<PageResponse<ClientResponse>> findDueToday(
             @AuthenticationPrincipal CustomUserDetails userDetails,
@@ -49,7 +47,6 @@ public class WorklistController
         return ResponseEntity.ok(clientService.findDueToday(userDetails.user(), pageRequest));
     }
 
-    /** Предпросмотр списка на обзвон по фильтрам (долговая информация, процент непереданных, динамика низкая). */
     @PostMapping("/preview")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<List<CallListClientResponse>> previewCallList(
@@ -58,7 +55,6 @@ public class WorklistController
         return ResponseEntity.ok(worklistService.previewCallList(request));
     }
 
-    /** Закрепить полученный список на обзвон для всех операторов (только администратор). */
     @PostMapping("/generate")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<CallListSummaryResponse> generateCallList(
@@ -68,7 +64,6 @@ public class WorklistController
         return ResponseEntity.ok(worklistService.generateCallList(request, userDetails.user()));
     }
 
-    /** Получить единый закреплённый список на обзвон (доступен всем операторам и админам). */
     @GetMapping("/call-list")
     @PreAuthorize("hasAnyRole('ADMIN', 'OPERATOR')")
     public ResponseEntity<CallListSummaryResponse> getCallList()
@@ -76,7 +71,6 @@ public class WorklistController
         return ResponseEntity.ok(worklistService.getCallList());
     }
 
-    /** Очистить закреплённый список на обзвон (только администратор). */
     @DeleteMapping("/call-list")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> clearCallList(

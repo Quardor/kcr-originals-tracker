@@ -21,10 +21,6 @@ import ru.quard0r.kcrbackend.security.CustomUserDetails;
 
 import java.util.List;
 
-/**
- * Претензии и санкции (§11.4): мутации — админ, читает карточку — любая роль.
- * Мутации дублируются событиями CLAIM/SANCTION в истории клиента.
- */
 @RestController
 @RequiredArgsConstructor
 public class ClaimController {

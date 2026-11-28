@@ -25,11 +25,6 @@ import ru.quard0r.kcrbackend.clients.model.Client;
 import java.time.Instant;
 import java.time.LocalDate;
 
-/**
- * Претензия к клиенту (§11.3): добавляется администратором, изменения статуса
- * дублируются событием CLAIM в общей истории клиента. Номер — внешний номер
- * претензии, иммутабелен после создания.
- */
 @Entity
 @EntityListeners(AuditingEntityListener.class)
 @Table(name = "claims", indexes = @Index(name = "idx_claims_client_id", columnList = "client_id"))

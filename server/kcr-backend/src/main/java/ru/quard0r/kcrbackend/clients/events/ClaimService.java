@@ -21,12 +21,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-/**
- * Претензионная работа (§11.4): претензии и санкции добавляет и меняет
- * администратор; каждая мутация дублируется событием CLAIM/SANCTION в общей
- * истории клиента. Изменения полей описываются в комментарии события по-русски
- * (данные истории читает оператор в интерфейсе).
- */
 @Service
 @RequiredArgsConstructor
 public class ClaimService {

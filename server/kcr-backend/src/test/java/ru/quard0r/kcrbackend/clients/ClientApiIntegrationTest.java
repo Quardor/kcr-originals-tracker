@@ -43,8 +43,6 @@ class ClientApiIntegrationTest {
 
     private final List<Long> createdClientIds = new ArrayList<>();
 
-    // Удаляются только клиенты, созданные самим тестом (по id): уборка по префиксу ITE%
-    // задевала реальные клиенты с такими кодами (в dev-БД есть ITE28142 и ITE91412).
     @AfterEach
     void deleteClientsCreatedDuringTest() {
         for (Long clientId : createdClientIds) {
@@ -107,8 +105,6 @@ class ClientApiIntegrationTest {
                         .header("Authorization", "Bearer " + operatorToken))
                 .andExpect(status().isBadRequest());
 
-        // Пагинация валидируется constraint-аннотациями (п. 28 §10): page < 0 и
-        // size вне [1, 100] — 400 в едином контракте, а не 500/выгрузка всей таблицы.
         mockMvc.perform(get("/api/v1/clients").param("page", "-1")
                         .header("Authorization", "Bearer " + operatorToken))
                 .andExpect(status().isBadRequest())
@@ -178,8 +174,6 @@ class ClientApiIntegrationTest {
                         .content("{\"inn\":\"123\"}"))
                 .andExpect(status().isBadRequest());
 
-        // ИНН юрлица — 10 цифр: правило DTO теперь то же, что у парсера импорта
-        // (п. 29 §10), раньше ручной PATCH/POST принимал только 12 цифр.
         mockMvc.perform(patch("/api/v1/clients/" + clientId)
                         .header("Authorization", "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -238,8 +232,6 @@ class ClientApiIntegrationTest {
                                 + "\"organizationName\":\"Organization\"}"))
                 .andExpect(status().isBadRequest());
 
-        // Код KCR канонизируется при записи (п. 29 §10): рукотворный ввод в другом
-        // регистре/с пробелами сопоставим с импортированным кодом.
         mockMvc.perform(post("/api/v1/clients")
                         .header("Authorization", "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -249,7 +241,6 @@ class ClientApiIntegrationTest {
                 .andExpect(content().string(containsString("ITE99997")));
         rememberCreatedClient("ITE99997");
 
-        // Формат кода проверяется и вручную: не 3 буквы + 5 цифр — 400.
         mockMvc.perform(post("/api/v1/clients")
                         .header("Authorization", "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -257,7 +248,6 @@ class ClientApiIntegrationTest {
                                 + "\"organizationName\":\"Organization\"}"))
                 .andExpect(status().isBadRequest());
 
-        // ИНН юрлица — 10 цифр, как в выгрузке импорта (п. 29 §10).
         mockMvc.perform(post("/api/v1/clients")
                         .header("Authorization", "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -273,8 +263,6 @@ class ClientApiIntegrationTest {
         String kcrCode = iteCode(suffix);
         String adminToken = registerAndLogin("itemail-adm-" + suffix, true);
 
-        // Surrounding whitespace used to fail @Email (400); it is trimmed in the
-        // DTO constructor before validation and stored normalized.
         mockMvc.perform(post("/api/v1/clients")
                         .header("Authorization", "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -288,7 +276,6 @@ class ClientApiIntegrationTest {
                 "SELECT id FROM clients WHERE kcr_code = ?", Long.class, kcrCode);
         assertEquals("contact@mail.com", contactEmail(clientId));
 
-        // Blank contact email is normalized to null = "do not change" (PATCH semantics).
         mockMvc.perform(patch("/api/v1/clients/" + clientId)
                         .header("Authorization", "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)

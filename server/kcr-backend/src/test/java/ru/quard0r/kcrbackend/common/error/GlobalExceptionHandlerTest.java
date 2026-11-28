@@ -40,7 +40,6 @@ class GlobalExceptionHandlerTest {
 
     @Test
     void integrityViolationMapsCaseInsensitiveUniqueIndexesToSpecificCodes() {
-        // Функциональные unique-индексы по lower(...) из V7 — имя индекса в нарушении.
         assertEquals("USERNAME_ALREADY_TAKEN",
                 handleIntegrityViolation("idx_users_username_lower").code());
         assertEquals("EMAIL_ALREADY_TAKEN",
@@ -77,8 +76,6 @@ class GlobalExceptionHandlerTest {
 
     @Test
     void integrityViolationParsesConstraintNameFromDriverMessage() {
-        // Без hibernate-обёртки в цепочке причин имя констрейнта извлекается
-        // из сообщения драйвера.
         SQLException driver = new SQLException(
                 "ERROR: duplicate key value violates unique constraint \"idx_users_username_lower\"");
         DataIntegrityViolationException e =
@@ -92,7 +89,6 @@ class GlobalExceptionHandlerTest {
 
     @Test
     void catchAllMapsUnexpectedExceptionToNeutralInternalError() {
-        // Причина не раскрывается клиенту (стек — в лог): единый контракт 500.
         ResponseEntity<ErrorResponse> response =
                 handler.exceptionHandler(new IllegalStateException("boom with details"));
 
@@ -103,15 +99,12 @@ class GlobalExceptionHandlerTest {
 
     @Test
     void accessDeniedIsRethrownForSecurityFilterChain() {
-        // 403 решается ExceptionTranslationFilter: переброс из advice сохраняет
-        // семантику авторизации (иначе catch-all превратил бы её в 500).
         assertThrows(AccessDeniedException.class,
                 () -> handler.exceptionHandler(new AccessDeniedException("denied")));
     }
 
     @Test
     void domainExceptionIsNotCaughtByCatchAll() {
-        // Более специфичный хендлер побеждает catch-all — доменный контракт сохранён.
         ResponseEntity<ErrorResponse> response = assertDoesNotThrow(() ->
                 handler.exceptionHandler(new DomainException(ErrorCode.INVALID_CREDENTIALS)));
 

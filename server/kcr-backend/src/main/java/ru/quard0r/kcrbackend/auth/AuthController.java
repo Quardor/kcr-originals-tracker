@@ -58,9 +58,6 @@ public class AuthController {
         return ResponseEntity.noContent().build();
     }
 
-    // За доверенным прокси реальный адрес клиента — только в X-Forwarded-For;
-    // при прямом доступе прокси-заголовок можно подделать, но ключ лимита — пара
-    // username+IP, и username-часть ограничивает перебор одиночного аккаунта.
     private String clientIp(HttpServletRequest request) {
         String forwarded = request.getHeader(FORWARDED_FOR_HEADER);
         if (forwarded != null && !forwarded.isBlank()) {

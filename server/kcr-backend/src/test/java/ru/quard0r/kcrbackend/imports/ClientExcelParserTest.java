@@ -233,11 +233,6 @@ class ClientExcelParserTest {
         }
     }
 
-    /**
-     * Layout of the real client export: header in row 2, "Код КЦР" heads an empty column,
-     * the codes sit in the headerless column A, card columns are not filled.
-     * The content-based column location needs at least five code rows to kick in.
-     */
     private byte[] realExportWorkbook() throws IOException {
         try (XSSFWorkbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             Sheet sheet = workbook.createSheet("Все КЦР");

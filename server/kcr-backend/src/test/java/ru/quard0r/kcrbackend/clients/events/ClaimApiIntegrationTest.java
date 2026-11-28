@@ -22,10 +22,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/**
- * Претензии и санкции (§11.4, шаг 5 §11.8): мутации — админ, чтение — обе роли,
- * каждая мутация дублируется событием CLAIM/SANCTION в истории клиента.
- */
 @SpringBootTest
 @AutoConfigureMockMvc
 class ClaimApiIntegrationTest {
@@ -62,7 +58,6 @@ class ClaimApiIntegrationTest {
         String operatorToken = registerAndLogin("clm-op-" + suffix, false);
         String adminToken = registerAndLogin("clm-adm-" + suffix, true);
 
-        // мутации претензий — только админ
         mockMvc.perform(post("/api/v1/clients/" + clientId + "/claims")
                         .header("Authorization", "Bearer " + operatorToken)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -80,7 +75,6 @@ class ClaimApiIntegrationTest {
                 .andReturn();
         Long claimId = extractId(created.getResponse().getContentAsString());
 
-        // карточка претензий читается обеими ролями, санкции вложены
         mockMvc.perform(get("/api/v1/clients/" + clientId + "/claims")
                         .header("Authorization", "Bearer " + operatorToken))
                 .andExpect(status().isOk())
@@ -91,7 +85,6 @@ class ClaimApiIntegrationTest {
                         .header("Authorization", "Bearer " + operatorToken))
                 .andExpect(status().isNotFound());
 
-        // статус и дата получения — patch-семантика, мутация видна в истории
         mockMvc.perform(patch("/api/v1/claims/" + claimId)
                         .header("Authorization", "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -114,7 +107,6 @@ class ClaimApiIntegrationTest {
                 .andExpect(status().isNotFound())
                 .andExpect(content().string(containsString("CLAIM_NOT_FOUND")));
 
-        // санкция по претензии: создание и смена статуса применения
         MvcResult sanctionCreated = mockMvc.perform(post("/api/v1/claims/" + claimId + "/sanctions")
                         .header("Authorization", "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -150,14 +142,12 @@ class ClaimApiIntegrationTest {
                         .content("{\"name\":\"Ещё санкция\"}"))
                 .andExpect(status().isForbidden());
 
-        // санкция вложена в претензию клиента
         mockMvc.perform(get("/api/v1/clients/" + clientId + "/claims")
                         .header("Authorization", "Bearer " + operatorToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].sanctions.length()").value(1))
                 .andExpect(content().string(containsString("Уведомление о приостановке")));
 
-        // каждая мутация продублирована в истории клиента
         mockMvc.perform(get("/api/v1/clients/" + clientId + "/events")
                         .header("Authorization", "Bearer " + operatorToken))
                 .andExpect(status().isOk())

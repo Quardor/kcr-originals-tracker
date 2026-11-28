@@ -2,11 +2,6 @@ package ru.quard0r.kcrbackend.security;
 
 import org.springframework.security.authentication.AbstractAuthenticationToken;
 
-/**
- * Результат конвертации access-токена. От `JwtAuthenticationToken` из Spring Security
- * отличается principal'ом: `CustomUserDetails` (сущность внутри), как его читают
- * контроллеры (`@AuthenticationPrincipal`) и `AuthService`.
- */
 public class UserAuthenticationToken extends AbstractAuthenticationToken {
 
     private final CustomUserDetails principal;

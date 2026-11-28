@@ -49,8 +49,6 @@ class AccountLockoutServiceTest {
 
     @Test
     void registerFailedLoginDelegatesToAtomicBulkUpdateWithLockDeadline() {
-        // Решение о блокировке живёт в SQL (case при достижении порога); сервис передаёт
-        // порог и срок и больше не делает read-modify-write над сущностью.
         accountLockoutService.registerFailedLogin("user");
 
         ArgumentCaptor<Instant> deadline = ArgumentCaptor.forClass(Instant.class);
@@ -63,7 +61,6 @@ class AccountLockoutServiceTest {
 
     @Test
     void registerFailedLoginPassesUsernameVerbatim() {
-        // Неизвестный username: bulk-UPDATE не находит строку — no-op на уровне SQL.
         accountLockoutService.registerFailedLogin("ghost");
 
         verify(userRepository).registerFailedLogin(eq("ghost"), eq(MAX_FAILED_ATTEMPTS),
@@ -78,7 +75,6 @@ class AccountLockoutServiceTest {
         accountLockoutService.resetFailedLogins(user);
 
         verify(userRepository).resetFailedLogins(user.getId());
-        // Сущность не мутируется и не сохраняется: сброс выполняется одним UPDATE.
         assertEquals(2, user.getFailedAttempts());
         verifyNoMoreInteractions(userRepository);
     }

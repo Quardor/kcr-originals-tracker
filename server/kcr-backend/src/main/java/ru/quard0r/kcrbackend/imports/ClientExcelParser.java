@@ -21,15 +21,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-/**
- * Parser for the client export workbook ("КЦР_выгрузка"): one sheet with client cards,
- * header in row 2. Columns are matched by normalized header aliases; the KCR code column
- * is located by content because in the real export its header heads an empty column while
- * the codes sit one column to the left (see {@link ExcelCells#locateCodeColumn}).
- * Embedded per-period debt columns are not imported — snapshots come from their own export.
- * Domain formats (INN, KPP, KCR code) are validated against the shared rules of
- * {@code common/validation} — the data source is replaceable, the domain rules are not.
- */
 public class ClientExcelParser {
 
     private static final Map<String, ClientType> CLIENT_TYPE_VALUES = Map.of(
@@ -166,7 +157,6 @@ public class ClientExcelParser {
             return null;
         }
         String normalized = ExcelCells.normalizeHeader(value);
-        // The export spells the value both "Действующий" and "Дейсвующий".
         if (normalized.startsWith("дей") || normalized.equals("да")) {
             return Boolean.TRUE;
         }
@@ -196,10 +186,6 @@ public class ClientExcelParser {
         return null;
     }
 
-    /**
-     * Two rows with the same KCR code inside one file are an import error (ARCHITECTURE.md §11.2):
-     * every row of the group is reported and excluded.
-     */
     private void excludeDuplicateCodes(List<RowCommand> rows, List<ParseIssue> issues) {
         Map<String, List<RowCommand>> byCode = rows.stream()
                 .collect(Collectors.groupingBy(rowCommand -> rowCommand.command().kcrCode()));

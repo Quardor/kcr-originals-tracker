@@ -184,8 +184,6 @@ class AuthServiceTest {
 
     @Test
     void loginFailureOnLockedAccountStillCountsAsFailedAttempt() {
-        // Locked-аккаунт отклоняется провайдером тем же путём: единый 401 без раскрытия
-        // причины, попытка передаётся в счётчик (продление блокировки).
         when(authenticationManager.authenticate(any(Authentication.class)))
                 .thenThrow(new LockedException("Account is locked"));
 

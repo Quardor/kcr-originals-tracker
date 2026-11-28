@@ -27,12 +27,6 @@ import ru.quard0r.kcrbackend.users.model.User;
 import java.time.Instant;
 import java.time.LocalDate;
 
-/**
- * Запись единой истории клиента с датой, временем и автором (§11.3): звонок с
- * результатом и договорённостью, письмо, комментарий либо системная запись о
- * мутации. Поля call_result/agreement/client_deadline/next_contact_at/record_url
- * заполняются только для CALL (валидация — сервисный слой).
- */
 @Entity
 @EntityListeners(AuditingEntityListener.class)
 @Table(name = "client_events", indexes = @Index(

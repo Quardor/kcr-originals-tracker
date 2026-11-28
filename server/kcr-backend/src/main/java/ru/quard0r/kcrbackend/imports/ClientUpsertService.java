@@ -24,18 +24,6 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-/**
- * Client import over the Excel adapter (ARCHITECTURE.md §11.8 item 3): upsert by the unique
- * KCR code, clients absent from the file are never touched. An update patches only the fields
- * present in the file — real exports omit the INN/name columns, which are NOT NULL in the
- * schema and must not be wiped. A new client without INN or organization name cannot be
- * created and is reported as a row issue. Apply leaves an IMPORT event per touched client
- * in the unified history (author — the uploading admin, §11.2).
- *
- * <p>Performance: clients and events are saved in a single batch each (saveAll), which lets
- * Hibernate's JDBC batching flush them in one round-trip instead of N individual statements.
- * Requires hibernate.jdbc.batch_size + SEQUENCE id generation (see application.yaml / V12).
- */
 @Service
 @RequiredArgsConstructor
 public class ClientUpsertService {
