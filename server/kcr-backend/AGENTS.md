@@ -82,9 +82,11 @@
 - Обязательно `@Entity` + `@Table(name = "snake_case_table")`.
 - Идентификатор: `@Id @GeneratedValue`, тип `Long`. Стратегия: `IDENTITY` — по умолчанию для
   небольших таблиц; `SEQUENCE` с `allocationSize = 50` — там, где нужны батчевые вставки
-  (`clients`, `client_events`, `document_transfer_snapshots`, миграция `V12`). Новую sequence
-  заводить только вместе с явным отключением IDENTITY у колонки в той же миграции — иначе у
-  таблицы оказываются два генератора id (п. 38 §10).
+  (`clients`, `client_events`, `document_transfer_snapshots`; миграции `V12`, `V13`). У таблицы
+  должен быть ровно один генератор id: переводя таблицу с `IDENTITY` на sequence, в той же миграции
+  сними IDENTITY и поставь колонке `DEFAULT nextval('<sequence>'::regclass)`; sequence заводи
+  с `MINVALUE 0` (иначе `setval(…, 0)` падает на пустой таблице) и пересинхронизируй счётчик
+  с `MAX(id)` (п. 38 §10).
 - Связи — с явным `fetch` (по умолчанию `LAZY` для `@ManyToOne`) и явными атрибутами
   (`nullable`, `unique`, `name` для колонок, отличных от camelCase).
 - enum'ы в БД — `@Enumerated(EnumType.STRING)`, varchar + CHECK-список значений в миграции;

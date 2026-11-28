@@ -166,15 +166,20 @@ imports   → clients (+ clients.events, включая репозитории �
 ## 4. Доменная модель
 
 Раздел описывает реализованные сущности. Все целевые таблицы ТЗ созданы миграциями
-`V1`–`V12` (схемы таблиц — в SQL-файлах `src/main/resources/db/migration`); ИИ-помощник реализован
+`V1`–`V13` (схемы таблиц — в SQL-файлах `src/main/resources/db/migration`); ИИ-помощник реализован
 отдельным сервисом `ml/` и своих таблиц в этой БД не имеет.
 
-Первичные ключи — суррогатные `id`. Генерация: у `clients`, `client_events` и
-`document_transfer_snapshots` — явные sequence-ы с шагом 50 (`V12__batch_sequences.sql`;
-`@GeneratedValue(strategy = SEQUENCE)` + `allocationSize = 50` — инстанс берёт у sequence пул
-id и выдаёт их подряд, что позволяет Hibernate батчить INSERT при импорте); остальные таблицы —
-`IDENTITY`. Колонки `id` трёх первых таблиц при этом сохранили свойство IDENTITY со старым
-счётчиком, то есть у таблицы осталось два независимых генератора (п. 38 §10).
+Первичные ключи — суррогатные `id`. У `clients`, `client_events` и `document_transfer_snapshots`
+единственный генератор id — sequence с шагом 50 (`clients_seq`, `client_events_seq`,
+`document_transfer_snapshots_seq`; `V12__batch_sequences.sql`, `V13__identity_to_sequences.sql`).
+Hibernate берёт у sequence пул id и выдаёт их подряд (`@GeneratedValue(strategy = SEQUENCE)` +
+`allocationSize = 50` — это позволяет батчить INSERT при импорте); вставка мимо Hibernate (сырой
+INSERT без `id`: `JdbcTemplate`, ручной SQL) получает значение из той же sequence через
+`DEFAULT nextval('<таблица>_seq'::regclass)` и не пересекается с пулом ни одного инстанса — каждое
+следующее значение sequence выше всех ранее выданных. `V13` сняла с этих колонок свойство IDENTITY
+(до него у таблиц было два независимых счётчика, п. 38 §10) и пересинхронизировала счётчики с
+`MAX(id)`; `MINVALUE 0` позволяет инициализировать sequence нулём на пустой таблице. Остальные
+таблицы — `IDENTITY`.
 
 ### User (`users`)
 | Поле | Тип | Ограничения |
@@ -215,7 +220,7 @@ Postgres не создаёт индексы на FK-колонки автома�
 
 | Поле | Тип | Ограничения |
 |---|---|---|
-| id | Long | PK, SEQUENCE `clients_seq` (шаг 50, V12) |
+| id | Long | PK, SEQUENCE `clients_seq` (шаг 50; единственный генератор id — V12, V13) |
 | kcrCode | String | not null, unique — основной идентификатор клиента; канонический вид `^[A-Z]{3}\d{5}$` — при записи нормализуется к верхнему регистру (`@KcrCode` + `common/KcrCodeNormalizer`, парсер импорта — то же правило), уникальность обычным unique (citext не нужен, пп. 29–30 §10) |
 | inn | String | not null, varchar(12) — 10 или 12 цифр (`@Inn`: единое с парсером импорта правило, юрлицо с 10-значным ИНН создаётся и вручную, п. 29 §10) |
 | kpp | String | varchar(9), опционален — 9 цифр (`@Kpp`) |
@@ -269,7 +274,7 @@ CLAIM_WORK → COMPLETED` (`V8`, varchar + CHECK). `IN_POOL` — админис�
 
 | Поле | Тип | Ограничения |
 |---|---|---|
-| id | Long | PK, SEQUENCE `document_transfer_snapshots_seq` (шаг 50, V12) |
+| id | Long | PK, SEQUENCE `document_transfer_snapshots_seq` (шаг 50; единственный генератор id — V12, V13) |
 | client | Client | @ManyToOne LAZY, not null — FK `client_id` на `clients` |
 | reportingPeriod | String | not null — свободный формат («2025 год», «1 квартал 2026») |
 | snapshotDate | LocalDate | not null — дата, на которую актуальны данные |
@@ -319,7 +324,7 @@ nullable-полями; выдаётся хронологически от нов
 
 | Поле | Тип | Ограничения |
 |---|---|---|
-| id | Long | PK, SEQUENCE `client_events_seq` (шаг 50, V12) |
+| id | Long | PK, SEQUENCE `client_events_seq` (шаг 50; единственный генератор id — V12, V13) |
 | client | Client | @ManyToOne LAZY, not null |
 | author | User | @ManyToOne LAZY, not null — автор действия |
 | createdAt | Instant | not null (`@CreatedDate`), колонка `created_at` |
@@ -595,7 +600,7 @@ Spring MVC, у которых нет собственного хендлера, 
 - `application.yaml` — общая часть: имя приложения; `spring.profiles.default=dev` (без явного
   профиля — `bootRun`, тесты — активен `dev`); JPA: `ddl-auto=validate`, OSIV выключен, батчинг
   `hibernate.jdbc.batch_size=50`, `order_inserts`, `order_updates` (INSERT/UPDATE уходят пакетами —
-  вместе с sequence-генерацией id, V12); лимиты multipart: `max-file-size=10MB`,
+  вместе с sequence-генерацией id, V12/V13); лимиты multipart: `max-file-size=10MB`,
   `max-request-size=15MB`; сроки токенов (`jwt.*`); секция `app.*` (см. ниже).
 - `application-dev.yaml` — локальная БД compose-стенда: `jdbc:postgresql://localhost:5433/kcr`,
   пользователь `kcr` (`DB_USERNAME` опциональна), `jwt.secret` из `JWT_SECRET`, CORS-origins
@@ -640,7 +645,7 @@ Spring MVC, у которых нет собственного хендлера, 
 Часовой пояс контейнера — UTC: cron очистки токенов `0 0 4 * * *` срабатывает в 07:00 МСК,
 а «сегодня» считается по дате UTC (п. 54 §10).
 
-Схема БД управляется Flyway: SQL-миграции в `src/main/resources/db/migration` (`V1`–`V12`,
+Схема БД управляется Flyway: SQL-миграции в `src/main/resources/db/migration` (`V1`–`V13`,
 перечень ниже) применяются при старте приложения до
 инициализации JPA; история — в таблице `flyway_schema_history`. В Boot 4 автоконфигурация Flyway
 вынесена в отдельный модуль `spring-boot-flyway` (зависимость вместо голого `flyway-core`,
@@ -660,10 +665,15 @@ Spring MVC, у которых нет собственного хендлера, 
 | `V9__client_event.sql` | `client_events` + индекс истории |
 | `V10__claim_sanction.sql` | `claims`, `sanctions` + индексы |
 | `V11__snapshot_dynamics_and_call_list.sql` | `dynamics_category`, `previous_not_transferred`; `call_list_items` |
-| `V12__batch_sequences.sql` | sequence-ы `clients_seq`, `client_events_seq`, `document_transfer_snapshots_seq` (шаг 50) для батчинга |
+| `V12__batch_sequences.sql` | sequence-ы `clients_seq`, `client_events_seq`, `document_transfer_snapshots_seq` (шаг 50, `MINVALUE 0`) для батчинга; счётчики инициализируются текущим `MAX(id)` |
+| `V13__identity_to_sequences.sql` | у `clients`, `client_events`, `document_transfer_snapshots` снят IDENTITY, колонка `id` получает `DEFAULT nextval('<таблица>_seq'::regclass)`, sequence привязана к колонке (`OWNED BY`, `MINVALUE 0`), счётчик пересинхронизирован с `MAX(id)` |
 
-Файлы миграций после применения не редактируются — любое изменение схемы в новую `V<n>__*.sql`
-(в том числе выправление V12, п. 38 §10).
+Файлы миграций после применения не редактируются — любое изменение схемы в новую `V<n>__*.sql`.
+Единственное исключение сделано 2026-11-28 для `V12` с разрешения владельца проекта: миграция ещё
+не была опубликована (не запушена), но падала на пустой таблице — `setval(…, 0)` вне диапазона
+sequence при `MINVALUE 1`, то есть чистая база не поднялась бы; в неё добавили `MINVALUE 0`. В базе,
+где успела примениться прежняя редакция, контрольную сумму версии в `flyway_schema_history` нужно
+обновить (`flyway repair`) — в dev-БД это сделано.
 
 ## 8. Сборка и запуск
 
@@ -719,13 +729,13 @@ docker compose down              # остановить; down -v — вмест�
 
 | Проверка | Результат |
 |---|---|
-| `./gradlew test` | **157 тестов: 149 прошли, 8 упали** — все падения в интеграционных тестах (`ClientApiIntegrationTest` 3, `OperatorCycleIntegrationTest` 2, `ClaimApiIntegrationTest` 1, `ImportApiIntegrationTest` 2), причина одна — п. 38 §10 (V12: второй генератор id). Юнит-тесты и парсеры зелёные |
+| `./gradlew build` | **161 тест, все прошли** (28 классов). До закрытия п. 38 §10 красными были 8 интеграционных (`ClientApiIntegrationTest`, `OperatorCycleIntegrationTest`, `ClaimApiIntegrationTest`, `ImportApiIntegrationTest`) |
 | `uv run pytest` (ml) | 70/70; `ruff check` и `ruff format --check` чистые |
 | `npm run build` (frontend) | собирается (Vite 6, ~273 kB JS / gzip ~83 kB) |
 | Живой прогон контракта ошибок | подтверждены пробелы из §6 (п. 43 §10) |
 
 Известные проблемы и требуемые изменения — §10 (открыты пп. 18, 19, 21, 22, 24–26, 33–37
-и новые 38–63). Остаток плана ТЗ — §11.8.
+и 39–63). Остаток плана ТЗ — §11.8.
 
 ### Хронология работ
 
@@ -1112,8 +1122,27 @@ docker compose down              # остановить; down -v — вмест�
   построчных save, `hibernate.jdbc.batch_size=50` + `order_inserts`/`order_updates`, миграция
   `V12` — sequence-ы с шагом 50 вместо IDENTITY для трёх таблиц (IDENTITY заставлял Hibernate
   делать flush после каждой вставки); срезы для предпросмотра и закреплённого списка читаются
-  одним запросом по набору клиентов. Проверялись только юнит-тесты: **интеграционные тесты после
-  этого падают (8 из 157)** — V12 оставила старый IDENTITY включённым, п. 38 §10.
+  одним запросом по набору клиентов. Проверялись только юнит-тесты: интеграционные после этого
+  падали (8 из 157) — `V12` оставила старый IDENTITY включённым (исправлено 2026-11-28, следующая
+  запись).
+
+- п. 38 §10 закрыт (2026-11-28, ветка `fix/id-generators`): у `clients`, `client_events` и
+  `document_transfer_snapshots` остался один генератор id. Миграция `V13__identity_to_sequences.sql`:
+  `DROP IDENTITY`, `DEFAULT nextval('<таблица>_seq'::regclass)` (сырой INSERT без id берёт значение
+  из той же sequence и не пересекается с пулом Hibernate), `OWNED BY` (sequence привязана к колонке),
+  пересинхронизация `setval(GREATEST(MAX(id), last_value))` на существующих базах. Попутно найдено,
+  что `V12` падала на пустой таблице (`setval(…, 0)` вне диапазона при `MINVALUE 1`) — чистая база
+  не поднялась бы; поскольку миграция ещё не опубликована, она отредактирована на месте с
+  разрешения владельца проекта (`MINVALUE 0` у трёх sequence), в dev-БД контрольная сумма обновлена
+  (эквивалент `flyway repair`, §7). Миграции репетировались в отдельной временной базе: чистая БД
+  (V1–V13), апгрейд с данными от двух генераторов (sequence впереди identity и наоборот), апгрейд
+  через прежнюю редакцию `V12`. Тесты: `IdGenerationIntegrationTest` (4: у трёх колонок нет
+  IDENTITY и стоит `nextval`-default; чередование сырых INSERT и вставок Hibernate через границу
+  пула — по 105 id на таблицу без конфликтов; тест транзакционный, строк в общей БД не оставляет).
+  В `ClientApiIntegrationTest` уборка `DELETE … LIKE 'ITE%'` задевала реальные коды KCR (в dev-БД
+  есть `ITE28142` и `ITE91412`: FK на срезы не давал удалить, а без FK уборка стёрла бы чужие
+  карточки) — теперь удаляются только клиенты, созданные самим тестом, по id. `./gradlew build`
+  проходит (161 тест).
 
 - полное ревью и синхронизация документации (2026-11-28): найденные проблемы внесены в §10
   как пункты 38–63 (по всем трём сервисам монорепо), разделы §1–§9 и §11 приведены в соответствие
@@ -1135,18 +1164,6 @@ docker compose down              # остановить; down -v — вмест�
 Факты в пунктах 38–63 подтверждены запуском (тесты, живые запросы к API), а не только чтением кода.
 
 ### P1 — блокирует (ревью 2026-11-28)
-
-38. **После V12 у таблиц два генератора id — интеграционные тесты красные.**
-    `V12__batch_sequences.sql` завела для `clients`, `client_events` и `document_transfer_snapshots`
-    sequence-ы с шагом 50, но колонки `id` остались `GENERATED BY DEFAULT AS IDENTITY` со своими
-    счётчиками. Hibernate выдаёт id из пула `[N−49 … N]` новой sequence, а любая вставка мимо
-    Hibernate (интеграционные тесты сеют строки через `JdbcTemplate`, ручные SQL-правки) берёт
-    следующий id из старого identity — значения пересекаются, конфликт `clients_pkey`. Результат:
-    `./gradlew test` — 8 из 157 падают (`DuplicateKeyException` на посеве, 409 `DATA_CONFLICT`
-    в `ImportApiIntegrationTest`). Целевое решение: новая миграция — `ALTER TABLE … ALTER COLUMN id
-    DROP IDENTITY` + `SET DEFAULT nextval('<таблица>_seq')` для всех трёх таблиц (сырой INSERT без id
-    продолжает работать и не пересекается с пулом инстанса); пересинхронизировать счётчики на
-    существующих базах; в тестах — посев через явные id или через сами сервисы.
 
 39. **Порог 5% не работает на реальных данных: нечем заполнить `total_documents`.**
     В реальной выгрузке срезов нет колонки «Всего документов», а долговые колонки выгрузки клиентов
@@ -1417,7 +1434,10 @@ docker compose down              # остановить; down -v — вмест�
     `@WebMvcTest` (контроллеры) и `@DataJpaTest` (репозитории), AssertJ для ассертов, JaCoCo-порог
     на изменённый код. *Статус 2026-11-28:* открыто; JsonPath так и не введён, тесты идут в общую
     dev-БД и при падении посреди сценария оставляют там пользователей (сейчас 13 тестовых аккаунтов,
-    включая ADMIN-роль) — плюс сами красные из-за п. 38.
+    включая ADMIN-роль). Уборка тестов идёт по префиксам кода KCR (`OPR%`, `CLM%`) и заденет
+    реальные карточки, если в базе есть коды с такими префиксами; импорт-тесты своих клиентов не
+    удаляют. `ClientApiIntegrationTest` с 2026-11-28 удаляет только созданные им строки по id
+    (закрытие п. 38), остальные — нет.
 19. **Наблюдаемость.** Логгеров в коде почти нет: добавить SLF4J в сервисы, аудит
     security-событий (login success/fail с username и IP). Подключить
     `spring-boot-starter-actuator` + Micrometer (экспорт в Prometheus); далее — JSON-логи
@@ -1438,7 +1458,7 @@ docker compose down              # остановить; down -v — вмест�
     `order_inserts`/`order_updates` + `reWriteBatchedInserts` драйвера Postgres; сам upsert —
     `INSERT … ON CONFLICT (kcr_code) DO UPDATE` (native) либо пакетный `JdbcTemplate.batchUpdate`.
     *Статус 2026-11-28:* батчинг вставок включён (2026-11-21: `batch_size=50`, `order_inserts`/
-    `order_updates`, `saveAll`, sequence-генерация id — с дефектом п. 38); bulk-удаления токенов,
+    `order_updates`, `saveAll`, sequence-генерация id — с 2026-11-28 один генератор на таблицу, п. 38 закрыт); bulk-удаления токенов,
     порционная чистка, `deleteByTokenHash`, `reWriteBatchedInserts` и upsert без SELECT+UPDATE —
     открыто.
 34. **Индексы под поиск клиентов.** Поиск `lower(kcr_code) LIKE '%q%' OR lower(inn) LIKE '%q%'`:
@@ -1495,7 +1515,7 @@ docker compose down              # остановить; down -v — вмест�
 ### Закрыто
 
 Пункты 1–17, 20, 23, 27–32 (вся прежняя группа P1 «до первого продакшена») — закрыты в
-2026-10-25 … 2026-11-03, записи — в хронологии §9.
+2026-10-25 … 2026-11-03; пункт 38 — 2026-11-28. Записи — в хронологии §9.
 
 ---
 
@@ -1663,8 +1683,8 @@ SECOND_CALL → CLAIM_WORK → COMPLETED`; `IN_POOL` — «администра�
 реализована 2026-11-19 — `snapshots/DynamicsService`), `ClientEventType`, `CallResult`,
 `ClaimStatus`, `SanctionStatus` (справочники приняты 2026-11-08, см. §4).
 
-Генерация первичных ключей — §4: для трёх крупных таблиц с `V12` работают sequence-ы с шагом 50
-(ради батчинга при импорте), для остальных — `IDENTITY`.
+Генерация первичных ключей — §4: для трёх крупных таблиц с `V12`/`V13` единственный генератор id —
+sequence с шагом 50 (ради батчинга при импорте), для остальных — `IDENTITY`.
 
 ### 11.4. REST API (реализовано на 2026-11-28)
 

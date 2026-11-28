@@ -11,6 +11,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -39,11 +41,17 @@ class ClientApiIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    // Клиенты, созданные через API, получают канонические коды ITE##### (п. 29 §10):
-    // 5 цифр не уникальны между запусками — записи убираются после каждого теста.
+    private final List<Long> createdClientIds = new ArrayList<>();
+
+    // Удаляются только клиенты, созданные самим тестом (по id): уборка по префиксу ITE%
+    // задевала реальные клиенты с такими кодами (в dev-БД есть ITE28142 и ITE91412).
     @AfterEach
-    void deleteApiCreatedClients() {
-        jdbcTemplate.update("DELETE FROM clients WHERE kcr_code LIKE 'ITE%'");
+    void deleteClientsCreatedDuringTest() {
+        for (Long clientId : createdClientIds) {
+            jdbcTemplate.update("DELETE FROM document_transfer_snapshots WHERE client_id = ?", clientId);
+            jdbcTemplate.update("DELETE FROM client_events WHERE client_id = ?", clientId);
+            jdbcTemplate.update("DELETE FROM clients WHERE id = ?", clientId);
+        }
     }
 
     private String iteCode(String uuidSuffix) {
@@ -203,6 +211,7 @@ class ClientApiIntegrationTest {
                 .andExpect(status().isCreated())
                 .andExpect(content().string(containsString(kcrCode)))
                 .andExpect(content().string(containsString("Created Organization")));
+        rememberCreatedClient(kcrCode);
 
         mockMvc.perform(get("/api/v1/clients").param("search", kcrCode.substring(3))
                         .header("Authorization", "Bearer " + operatorToken))
@@ -238,6 +247,7 @@ class ClientApiIntegrationTest {
                                 + "\"organizationName\":\"Normalized Code Organization\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(content().string(containsString("ITE99997")));
+        rememberCreatedClient("ITE99997");
 
         // Формат кода проверяется и вручную: не 3 буквы + 5 цифр — 400.
         mockMvc.perform(post("/api/v1/clients")
@@ -254,6 +264,7 @@ class ClientApiIntegrationTest {
                         .content("{\"kcrCode\":\"ITE99996\",\"inn\":\"1234567890\","
                                 + "\"organizationName\":\"Ten Digit Inn Organization\"}"))
                 .andExpect(status().isCreated());
+        rememberCreatedClient("ITE99996");
     }
 
     @Test
@@ -271,6 +282,7 @@ class ClientApiIntegrationTest {
                                 + "\"organizationName\":\"Organization\",\"contactEmail\":\" contact@mail.com \"}"))
                 .andExpect(status().isCreated())
                 .andExpect(content().string(containsString("contact@mail.com")));
+        rememberCreatedClient(kcrCode);
 
         Long clientId = jdbcTemplate.queryForObject(
                 "SELECT id FROM clients WHERE kcr_code = ?", Long.class, kcrCode);
@@ -289,7 +301,14 @@ class ClientApiIntegrationTest {
         jdbcTemplate.update(
                 "INSERT INTO clients (kcr_code, inn, organization_name, client_type, flags) VALUES (?, ?, ?, ?, ?)",
                 kcrCode, "123456789012", organizationName, clientType, flags);
-        return jdbcTemplate.queryForObject("SELECT id FROM clients WHERE kcr_code = ?", Long.class, kcrCode);
+        Long clientId = jdbcTemplate.queryForObject("SELECT id FROM clients WHERE kcr_code = ?", Long.class, kcrCode);
+        createdClientIds.add(clientId);
+        return clientId;
+    }
+
+    private void rememberCreatedClient(String kcrCode) {
+        createdClientIds.add(jdbcTemplate.queryForObject(
+                "SELECT id FROM clients WHERE kcr_code = ?", Long.class, kcrCode));
     }
 
     private void insertSnapshot(Long clientId, String reportingPeriod, LocalDate snapshotDate,
