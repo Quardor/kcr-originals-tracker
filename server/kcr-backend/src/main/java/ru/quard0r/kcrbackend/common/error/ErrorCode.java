@@ -38,6 +38,7 @@ public enum ErrorCode {
     RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "Resource not found"),
     DATA_CONFLICT(HttpStatus.CONFLICT, "Data integrity violation"),
 
+    AI_SERVICE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "AI service is unavailable"),
     SHA256_UNAVAILABLE(HttpStatus.INTERNAL_SERVER_ERROR, "SHA-256 digest is not available in the JRE"),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "Internal server error");
 

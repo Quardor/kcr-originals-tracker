@@ -6,7 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from kcr_ml.api.deps import get_data_source, get_llm, get_principal
+from kcr_ml.api.deps import get_data_source, get_llm, get_principal, require_internal_token
 from kcr_ml.api.schemas.rest import (
     BriefOut,
     ClaimOut,
@@ -21,7 +21,7 @@ from kcr_ml.application.brief_service import build_brief
 from kcr_ml.application.ports import DataSourcePort, LlmPort
 from kcr_ml.domain.model import Principal
 
-router = APIRouter(prefix="/api/v1/ai", tags=["brief"])
+router = APIRouter(prefix="/api/v1/ai", tags=["brief"], dependencies=[Depends(require_internal_token)])
 
 
 @router.get("/clients/{client_id}/brief", response_model=BriefOut)

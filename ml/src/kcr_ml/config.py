@@ -11,15 +11,17 @@ from typing import Literal
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+INTERNAL_TOKEN_MIN_BYTES = 32
+
 
 class Settings(BaseSettings):
     """Strongly-typed settings; field names map 1:1 to environment variables."""
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    # kcr-backend
+    # kcr-backend: this service answers to the backend alone
     kcr_backend_base_url: str
-    auth_jwt_secret: str
+    auth_internal_token: str
 
     # LLM provider (OpenAI-compatible for both modes)
     llm_provider: Literal["api", "local"]
@@ -42,18 +44,12 @@ class Settings(BaseSettings):
     ai_score_stage: float = 10
     ai_score_vip: float = 5
 
-    # Delivery
-    app_cors_allowed_origins: str = "http://localhost:5173"
-
     @model_validator(mode="after")
-    def _validate_provider_requirements(self) -> Settings:
+    def _validate_mandatory_settings(self) -> Settings:
         if self.llm_provider == "api" and not (self.llm_api_key or "").strip():
             raise ValueError("LLM_API_KEY is required when LLM_PROVIDER=api")
         if self.ai_chat_history_limit < 1 or self.ai_max_tool_iterations < 1:
             raise ValueError("AI_CHAT_HISTORY_LIMIT and AI_MAX_TOOL_ITERATIONS must be >= 1")
+        if len(self.auth_internal_token.encode("utf-8")) < INTERNAL_TOKEN_MIN_BYTES:
+            raise ValueError(f"AUTH_INTERNAL_TOKEN must be at least {INTERNAL_TOKEN_MIN_BYTES} bytes long")
         return self
-
-    @property
-    def cors_origins(self) -> list[str]:
-        """Comma-separated origins split into a list."""
-        return [origin.strip() for origin in self.app_cors_allowed_origins.split(",") if origin.strip()]

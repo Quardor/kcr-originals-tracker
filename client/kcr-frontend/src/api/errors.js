@@ -29,6 +29,7 @@ const MESSAGES = {
   INVALID_REQUEST_PARAMETER: 'Некорректный параметр запроса',
   RESOURCE_NOT_FOUND: 'Адрес не найден',
   DATA_CONFLICT: 'Конфликт данных',
+  AI_SERVICE_UNAVAILABLE: 'ИИ-помощник недоступен. Попробуйте позже',
   INTERNAL_ERROR: 'Внутренняя ошибка сервера',
   NETWORK_ERROR: 'Не удалось соединиться с сервером',
 };

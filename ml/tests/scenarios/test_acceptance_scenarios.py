@@ -13,9 +13,9 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from kcr_ml.application.ports import StreamDone, ToolCall
-from tests.fakes import ScriptedLlm, make_token, text_script
+from tests.fakes import ScriptedLlm, backend_headers, text_script
 
-ADMIN = {"Authorization": f"Bearer {make_token(role='ADMIN', username='admin')}"}
+ADMIN = backend_headers(role="ADMIN", user_id=1, token="admin-token")
 
 
 def _ws_receive_until(ws: Any, stop_type: str) -> list[dict[str, Any]]:
@@ -76,7 +76,9 @@ def test_scenario_3_reappeared(client: TestClient, llm_factory: Any) -> None:
 
 
 # Сценарий 4: «кому сегодня требуется внимание» — чат, инструмент get_today_clients, next_contact_at <= сегодня.
-def test_scenario_4_today_attention_via_chat(client: TestClient, llm_factory: Any) -> None:
+def test_scenario_4_today_attention_via_chat(
+    client: TestClient, llm_factory: Any, admin_headers: dict[str, str]
+) -> None:
     llm_factory(
         ScriptedLlm(
             [
@@ -85,8 +87,7 @@ def test_scenario_4_today_attention_via_chat(client: TestClient, llm_factory: An
             ]
         )
     )
-    token = make_token(role="ADMIN", username="admin")
-    with client.websocket_connect(f"/api/v1/ai/chat?token={token}") as ws:
+    with client.websocket_connect("/api/v1/ai/chat", headers=admin_headers) as ws:
         ws.send_text(
             json.dumps({"type": "user_message", "content": "Покажи клиентов, которым сегодня требуется внимание"})
         )
@@ -136,7 +137,7 @@ def test_scenario_6_multi_factor_criteria(client: TestClient, llm_factory: Any) 
 
 
 # Сценарий 7 (негативные): вопрос вне данных и просьба мутации — отказ, данных не трогали.
-def test_scenario_7_refusals(client: TestClient, llm_factory: Any) -> None:
+def test_scenario_7_refusals(client: TestClient, llm_factory: Any, admin_headers: dict[str, str]) -> None:
     llm_factory(
         ScriptedLlm(
             [
@@ -145,8 +146,7 @@ def test_scenario_7_refusals(client: TestClient, llm_factory: Any) -> None:
             ]
         )
     )
-    token = make_token(role="OPERATOR", username="op.morozova")
-    with client.websocket_connect(f"/api/v1/ai/chat?token={token}") as ws:
+    with client.websocket_connect("/api/v1/ai/chat", headers=admin_headers) as ws:
         ws.send_text(json.dumps({"type": "user_message", "content": "Какая погода в Екатеринбурге?"}))
         frames = _ws_receive_until(ws, "assistant_done")
         assert [frame["type"] for frame in frames] == ["assistant_delta", "assistant_done"]

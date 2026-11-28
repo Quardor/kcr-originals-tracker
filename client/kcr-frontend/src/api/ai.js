@@ -1,106 +1,46 @@
-import { getAccessToken } from './client';
+import { API_BASE_URL, apiFetch } from './client';
 
 /**
- * Клиент AI-сервиса (kcr-ml, ARCHITECTURE.md §7): те же access-токены kcr-backend,
- * контракт ошибок совпадает. Токен в WS уходит query-параметром — компромисс MVP
- * (браузер не позволяет заголовок Authorization в WebSocket).
+ * Клиент ИИ-помощника (kcr-ml): фронт обращается только к бэкенду — те же токены и тот же
+ * контракт ошибок, что у остального API. Бэкенд проверяет права и проксирует запрос в kcr-ml
+ * (домен ai/, ARCHITECTURE.md бэкенда §5).
  */
-const AI_BASE_URL = import.meta.env.VITE_AI_BASE_URL ?? 'http://localhost:8000/api/v1/ai';
-
-export class AiError extends Error {
-  constructor(status, code, message) {
-    super(message);
-    this.name = 'AiError';
-    this.status = status;
-    this.code = code;
-  }
-}
-
-function aiHeaders() {
-  const headers = {};
-  const token = getAccessToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
-  return headers;
-}
-
-async function parseErrorResponse(response) {
-  let code = null;
-  let message = `HTTP ${response.status}`;
-  try {
-    const body = await response.json();
-    if (body && typeof body.code === 'string') code = body.code;
-    if (body && typeof body.message === 'string' && body.message) message = body.message;
-  } catch {
-    // не JSON — остаётся дефолт
-  }
-  return new AiError(response.status, code, message);
-}
-
-async function aiFetch(path, { method = 'GET', body } = {}) {
-  const headers = aiHeaders();
-  let payload;
-  if (body !== undefined) {
-    headers['Content-Type'] = 'application/json';
-    payload = JSON.stringify(body);
-  }
-  let response;
-  try {
-    response = await fetch(`${AI_BASE_URL}${path}`, { method, headers, body: payload });
-  } catch {
-    throw new AiError(0, 'NETWORK_ERROR', 'Не удалось соединиться с AI-сервисом');
-  }
-  if (!response.ok) {
-    throw await parseErrorResponse(response);
-  }
-  if (response.status === 204) return null;
-  return response.json();
-}
+const AI_PATH = '/ai';
 
 /** UC-2: сводка перед звонком — факты из данных + текст от LLM. */
 export function fetchBrief(clientId) {
-  return aiFetch(`/clients/${clientId}/brief`);
+  return apiFetch(`${AI_PATH}/clients/${clientId}/brief`);
 }
 
 /** UC-3: приоритетная выборка (админ): {prompt, limit} → критерии + список с баллами. */
 export function prioritize(payload) {
-  return aiFetch('/prioritize', { method: 'POST', body: payload });
+  return apiFetch(`${AI_PATH}/prioritize`, { method: 'POST', body: payload });
 }
 
 /** UC-4: агрегаты для дашбордов. */
 export function fetchAnalyticsSummary() {
-  return aiFetch('/analytics/summary');
+  return apiFetch(`${AI_PATH}/analytics/summary`);
 }
 
 export function fetchAnalyticsDynamics() {
-  return aiFetch('/analytics/dynamics');
+  return apiFetch(`${AI_PATH}/analytics/dynamics`);
 }
 
 export function fetchAnalyticsTopDebt(limit = 10) {
-  return aiFetch(`/analytics/top-debt?limit=${limit}`);
+  return apiFetch(`${AI_PATH}/analytics/top-debt?limit=${limit}`);
 }
 
 export function fetchAnalyticsOperators() {
-  return aiFetch('/analytics/operators');
+  return apiFetch(`${AI_PATH}/analytics/operators`);
 }
 
 /** UC-5: экспорт выборки/отчёта в xlsx — скачивание файла на клиенте. */
 export async function exportXlsx(payload, filename) {
-  const headers = aiHeaders();
-  headers['Content-Type'] = 'application/json';
-  let response;
-  try {
-    response = await fetch(`${AI_BASE_URL}/export/xlsx`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload),
-    });
-  } catch {
-    throw new AiError(0, 'NETWORK_ERROR', 'Не удалось соединиться с AI-сервисом');
-  }
-  if (!response.ok) {
-    throw await parseErrorResponse(response);
-  }
-  const blob = await response.blob();
+  const blob = await apiFetch(`${AI_PATH}/export/xlsx`, {
+    method: 'POST',
+    body: payload,
+    responseType: 'blob',
+  });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
@@ -111,13 +51,23 @@ export async function exportXlsx(payload, filename) {
   URL.revokeObjectURL(url);
 }
 
+// WebSocket требует абсолютный URL: для относительного базового адреса (сборка под nginx)
+// origin берётся у самой страницы.
+function chatOrigin() {
+  if (API_BASE_URL.startsWith('/')) {
+    return `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`;
+  }
+  return API_BASE_URL.replace(/^http/, 'ws').replace(/\/api\/v1$/, '');
+}
+
 /**
- * WebSocket чата (UC-1). Возвращает готовый WebSocket; URL собирается из базового
- * адреса AI-сервиса. Живёт в пределах одной сессии чата — переподключение начинает
- * новую историю (история хранится в памяти соединения).
+ * WebSocket чата (UC-1). Браузер не может поставить заголовок Authorization на WebSocket,
+ * поэтому соединение открывается по одноразовому ticket, который выдаёт бэкенд: он живёт
+ * 30 секунд и расходуется на одно рукопожатие, токен в URL не встречается. Возвращает
+ * готовый WebSocket. Живёт в пределах одной сессии чата — переподключение начинает новую
+ * историю (история хранится в памяти соединения).
  */
-export function openChatSocket() {
-  const wsBase = AI_BASE_URL.replace(/^http/, 'ws').replace(/\/api\/v1\/ai$/, '');
-  const token = encodeURIComponent(getAccessToken() ?? '');
-  return new WebSocket(`${wsBase}/api/v1/ai/chat?token=${token}`);
+export async function openChatSocket() {
+  const { ticket } = await apiFetch(`${AI_PATH}/chat/ticket`, { method: 'POST' });
+  return new WebSocket(`${chatOrigin()}/api/v1/ai/chat?ticket=${encodeURIComponent(ticket)}`);
 }

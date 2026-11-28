@@ -1,12 +1,10 @@
-"""Test doubles: in-memory DataSourcePort, scripted LlmPort, seed universe, JWT helper."""
+"""Test doubles: in-memory DataSourcePort, scripted LlmPort, seed universe, backend header helper."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
-
-import jwt as pyjwt
 
 from kcr_ml.application.ports import LlmEvent, LlmMessage, StreamDone, TextDelta, ToolSpec
 from kcr_ml.domain.model import (
@@ -25,34 +23,26 @@ from kcr_ml.domain.model import (
     WorkStage,
 )
 
-TEST_SECRET = "test-jwt-secret-kcr-ml-0123456789abcdef"
+TEST_INTERNAL_TOKEN = "test-internal-token-kcr-ml-0123456789abcdef"
+
+
+def backend_headers(
+    *, role: str = "ADMIN", user_id: int = 1, token: str = "access-token", internal_token: str = TEST_INTERNAL_TOKEN
+) -> dict[str, str]:
+    """Headers kcr-backend sends after it has authenticated the user."""
+    return {
+        "Authorization": f"Bearer {token}",
+        "X-Internal-Token": internal_token,
+        "X-Kcr-User-Id": str(user_id),
+        "X-Kcr-User-Role": role,
+    }
+
 
 TODAY = date(2026, 11, 8)
 LONG_AGO = datetime(2025, 6, 1, tzinfo=UTC)
 P1, P2, P3 = "1 кв. 2026", "2 кв. 2026", "3 кв. 2026"
 D1, D2, D3 = date(2026, 4, 15), date(2026, 7, 15), date(2026, 10, 15)
 D3B = D3 + timedelta(days=7)
-
-
-def make_token(
-    *,
-    sub: str = "1",
-    username: str = "admin",
-    role: str = "ADMIN",
-    secret: str = TEST_SECRET,
-) -> str:
-    """Sign an access token the same way kcr-backend does (HS256, roles as string)."""
-    now = datetime.now(UTC)
-    payload = {
-        "sub": sub,
-        "jti": "test-jti",
-        "preferred_username": username,
-        "email": None,
-        "roles": role,
-        "iat": int(now.timestamp()),
-        "exp": int((now + timedelta(minutes=15)).timestamp()),
-    }
-    return pyjwt.encode(payload, secret, algorithm="HS256")
 
 
 class ScriptedLlm:

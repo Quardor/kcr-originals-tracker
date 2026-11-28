@@ -16,9 +16,10 @@
 ## 1. Единая парадигма
 
 Проект организован по package-by-feature (§3/§11.5 ARCHITECTURE.md): домены — feature-пакеты
-(`auth/`, `clients/` с под-доменом `clients/events/`, `snapshots/`, `imports/`, `users/`),
-кросс-доменный код — `common/` (включая `common/error/` — контракт ошибок и `common/validation/` —
-правила формата ИНН/КПП/кода KCR), инфраструктура — `security/` и `config/`. Внутри домена:
+(`ai/`, `auth/`, `clients/` с под-доменом `clients/events/`, `snapshots/`, `imports/`,
+`users/`), кросс-доменный код — `common/` (включая `common/error/` — контракт ошибок и
+`common/validation/` — правила формата ИНН/КПП/кода KCR), инфраструктура — `security/` и
+`config/`. Внутри домена:
 контроллер и сервисы — в корне пакета домена, `model/`, `repository/`, `dto/` — его подпакеты.
 Исключение: в `clients/events/` сущности, enum'ы и репозитории лежат прямо в пакете (без `model/`
 и `repository/`) — новый код там следует класть по тому же правилу, чтобы не плодить два стиля.
@@ -37,10 +38,11 @@
   выполняется на границе (фабрика `from(entity)` в самом record'е либо отдельный маппер, если
   станет объёмно).
 - **Направление зависимостей между доменами** — по фактической схеме §3 ARCHITECTURE.md:
-  `auth → users, security`; `security → users`; `clients → snapshots, users`;
-  `snapshots → clients.model` (только `Client`); `imports → clients, snapshots, users.model`.
-  Новую зависимость между доменами заводить только по этой схеме; цикл `clients ↔ snapshots` —
-  известный долг (п. 62 §10), не углублять его.
+  `ai → security, common`; `auth → users, security`; `security → users`;
+  `clients → snapshots, users`; `snapshots → clients.model` (только `Client`);
+  `imports → clients, snapshots, users.model`; `config → security, ai` (регистрация
+  WebSocket-хендлера чата). Новую зависимость между доменами заводить только по этой схеме;
+  цикл `clients ↔ snapshots` — известный долг (п. 62 §10), не углублять его.
 - Новый код кладётся в пакет своего домена; новый домен заводится по той же схеме
   (существительное в единственном числе), а не `utils`/`helpers`.
 - Одна сущность/сервис/контроллер/DTO — один файл. Имя файла = имя класса.
@@ -174,6 +176,8 @@
 - Проверки прав — `@PreAuthorize("hasRole('…')")` по enum `Role` (`ADMIN`, `OPERATOR`);
   ограничение «только свой клиент» для оператора — в сервисе (как `StagePolicy`), не в контроллере.
 - Секреты и сроки жизни токенов — только из конфигурации (`jwt.*`).
+- Вызовы kcr-ml — только через домен `ai/`: внутренний сервисный токен берётся из конфигурации
+  (`app.ml.internal-token`), токены пользователя, ticket'ы и секреты не логируются.
 - Данные, пришедшие из запроса, не интерполируются в SQL и не попадают в URL/`href` без проверки.
 
 ## 5. Проверка перед завершением работы

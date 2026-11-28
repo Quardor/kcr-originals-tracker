@@ -7,7 +7,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from kcr_ml.api.deps import get_data_source, get_principal, get_settings, get_today
+from kcr_ml.api.deps import get_data_source, get_principal, get_settings, get_today, require_internal_token
 from kcr_ml.api.schemas.rest import (
     AnalyticsDynamicsOut,
     AnalyticsOperatorsOut,
@@ -19,7 +19,7 @@ from kcr_ml.application.ports import DataSourcePort
 from kcr_ml.config import Settings
 from kcr_ml.domain.model import Principal
 
-router = APIRouter(prefix="/api/v1/ai/analytics", tags=["analytics"])
+router = APIRouter(prefix="/api/v1/ai/analytics", tags=["analytics"], dependencies=[Depends(require_internal_token)])
 
 
 @router.get("/summary", response_model=AnalyticsSummaryOut)

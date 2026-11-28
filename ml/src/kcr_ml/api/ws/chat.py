@@ -1,9 +1,11 @@
-"""WS /api/v1/ai/chat — chat protocol of §7 (token in query, JSON frames).
+"""WS /api/v1/ai/chat — chat protocol of §7 (JSON frames).
 
-Browsers cannot set the Authorization header on WebSocket, so the MVP carries
-the access token in the query parameter (accepted trade-off, §8). Every frame
-is validated by a Pydantic schema; invalid input closes the connection with an
-``error`` frame. History lives in the memory of the connection only (§7).
+The browser never reaches this endpoint: kcr-backend authenticates the user,
+opens the connection with its service token and the asserted identity headers,
+and relays the frames. A connection without them is refused before ``accept``.
+Every frame is validated by a Pydantic schema; invalid input closes the
+connection with an ``error`` frame. History lives in the memory of the
+connection only (§7).
 """
 
 from __future__ import annotations
@@ -15,7 +17,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 
-from kcr_ml.api.deps import get_settings, get_ws_data_source, get_ws_llm
+from kcr_ml.api.deps import get_settings, get_ws_data_source, get_ws_llm, opened_by_backend
 from kcr_ml.api.schemas.ws import (
     WsAssistantDelta,
     WsAssistantDone,
@@ -27,8 +29,7 @@ from kcr_ml.api.schemas.ws import (
 from kcr_ml.application.chat_service import ChatEvent, ChatSession, DataEvent, DeltaEvent, ToolStatusEvent
 from kcr_ml.application.ports import DataSourcePort, LlmPort
 from kcr_ml.config import Settings
-from kcr_ml.exceptions import AppError, AuthenticationRequiredError, ValidationFailedError
-from kcr_ml.infrastructure.security.jwt_auth import decode_access_token
+from kcr_ml.exceptions import AppError, ValidationFailedError
 
 logger = logging.getLogger(__name__)
 
@@ -62,13 +63,10 @@ async def chat_endpoint(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> None:
     """One connection = one chat session with bounded in-memory history."""
-    await websocket.accept()
-    try:
-        decode_access_token(websocket.query_params.get("token", ""), settings.auth_jwt_secret)
-    except AuthenticationRequiredError as error:
-        await _send_error(websocket, error)
+    if not opened_by_backend(websocket, settings):
         await websocket.close(code=4401)
         return
+    await websocket.accept()
 
     session = ChatSession(
         source,
