@@ -33,12 +33,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 
-/**
- * Карточки клиентов и операторский цикл над ними (§11.4): фильтрация списка,
- * атомарное взятие свободного клиента, переназначение ответственного, смена этапа
- * и список «сегодня нужно». Каждая мутация оставляет системное событие в истории
- * клиента (ClientEventService, §11.2).
- */
 @Service
 @RequiredArgsConstructor
 public class ClientService {
@@ -66,8 +60,6 @@ public class ClientService {
         return PageResponse.from(page);
     }
 
-    /** «Сегодня нужно» (§11.4): срок следующего контакта уже наступил; оператору —
-     *  свои клиенты, админу — все. */
     @Transactional(readOnly = true)
     public PageResponse<ClientResponse> findDueToday(User actor, Pageable pageable) {
         List<Specification<Client>> specifications = new ArrayList<>();
@@ -180,11 +172,6 @@ public class ClientService {
         return ClientResponse.from(clientRepository.save(client));
     }
 
-    /**
-     * Атомарное взятие свободного клиента (§11.2): условный UPDATE исключает
-     * одновременное занятие двумя операторами; повторное взятие (в том числе
-     * текущим ответственным) — конфликт.
-     */
     @Transactional
     public ClientResponse take(Long clientId, User operator) {
         int updated = clientRepository.assignAssigneeIfFree(clientId, operator.getId());
@@ -200,8 +187,6 @@ public class ClientService {
         return ClientResponse.from(client);
     }
 
-    /** Переназначение/освобождение ответственного (§11.4, админ): assigneeId = null
-     *  освобождает клиента. */
     @Transactional
     public ClientResponse updateAssignment(Long clientId, AssignmentUpdateRequest request, User admin) {
         Client client = getExistingClient(clientId);
@@ -224,8 +209,6 @@ public class ClientService {
         return ClientResponse.from(clientRepository.save(client));
     }
 
-    /** Смена этапа (§11.4): правила — StagePolicy; повторная установка того же
-     *  этапа идемпотентна и событие не создаёт. */
     @Transactional
     public ClientResponse updateStage(Long clientId, StageUpdateRequest request, User actor) {
         Client client = getExistingClient(clientId);

@@ -23,11 +23,6 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.time.Instant;
 
-/**
- * Санкция по претензии (§11.3): название — свободный текст (справочник доступных
- * санкций не определён, §11.7), статус применения меняется администратором,
- * мутации дублируются событием SANCTION в общей истории клиента.
- */
 @Entity
 @EntityListeners(AuditingEntityListener.class)
 @Table(name = "sanctions", indexes = @Index(name = "idx_sanctions_claim_id", columnList = "claim_id"))

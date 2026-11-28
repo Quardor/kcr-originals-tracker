@@ -14,9 +14,6 @@ import java.util.Optional;
 
 public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Long> {
 
-    // SELECT … FOR UPDATE serializes concurrent rotation of the same token (§10, item 8).
-    // Deliberately without join fetch: FOR UPDATE over a join would also lock the users row,
-    // which deadlocks with deleteByUser when two tokens of one user rotate in parallel.
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select t from RefreshToken t where t.tokenHash = :tokenHash")
     Optional<RefreshToken> findByTokenHashForUpdate(@Param("tokenHash") String tokenHash);

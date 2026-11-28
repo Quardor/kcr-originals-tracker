@@ -13,11 +13,6 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * Общие правила домена (п. 29 §10 ARCHITECTURE.md): @Inn / @Kpp / @KcrCode —
- * один источник и для DTO ручного создания, и для парсера Excel-импорта;
- * нормализация кода KCR к каноническому виду — до валидации.
- */
 class ClientRequestValidationTest {
 
     private final Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
@@ -46,8 +41,6 @@ class ClientRequestValidationTest {
     void kcrCodeAcceptsCanonicalFormOnly() {
         assertTrue(violations(new Sample(null, null, "ABC12345")).isEmpty());
 
-        // Нормализация — обязанность записи (компакт-конструкторы DTO / парсер),
-        // констрейнт проверяет канонический вид.
         assertEquals(1, violations(new Sample(null, null, "abc12345")).size());
         assertEquals(1, violations(new Sample(null, null, "ABCD12345")).size());
         assertEquals(1, violations(new Sample(null, null, "AB1234")).size());
@@ -55,7 +48,6 @@ class ClientRequestValidationTest {
 
     @Test
     void constraintsTreatNullAsValid() {
-        // Опциональность и обязательность задаются отдельно (@NotBlank, PATCH-семантика).
         assertTrue(violations(new Sample(null, null, null)).isEmpty());
     }
 
@@ -71,7 +63,6 @@ class ClientRequestValidationTest {
 
     @Test
     void createRequestRejectsImportIncompatibleInn() {
-        // 11-значный ИНН отвергается и вручную, и импортом — правила одни (п. 29 §10).
         ClientCreateRequest request = new ClientCreateRequest(
                 "ABC12345", "12345678901", null, "Organization",
                 null, null, null, null, null, null, null, null, null, null, null);

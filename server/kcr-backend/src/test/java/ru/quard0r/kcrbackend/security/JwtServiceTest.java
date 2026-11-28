@@ -16,9 +16,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
-// JwtService отвечает только за выдачу; проверка токена — NimbusJwtDecoder
-// (SecurityConfig), пути валидного/истёкшего/подделанного токена покрыты
-// конвертером и интеграционными сценариями.
 class JwtServiceTest {
 
     private static final String SECRET = "test-secret-key-with-at-least-32-bytes!!";

@@ -20,17 +20,6 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-/**
- * Parser for the snapshot export workbook ("Срез &lt;дата&gt;"): each sheet is one reporting
- * period and carries the KCR code plus document counters per client, header in row 2.
- * The caller selects the reporting period (ТЗ scenario 2: период → дата → файл); only sheets
- * whose name matches the selected period (case-, spacing- and ё-insensitive) are imported,
- * and data-carrying sheets of other periods are reported as skipped — a multi-period export
- * is loaded one period at a time, nothing lands under a foreign period. The snapshot date
- * lives only in the file name and is passed by the caller. A missing "документов всего"
- * column yields null totals — the upsert service inherits them from the previous snapshot
- * of the period.
- */
 public class SnapshotExcelParser {
 
     private static final Set<String> ALL_ALIASES = Arrays.stream(Field.values())
@@ -158,11 +147,6 @@ public class SnapshotExcelParser {
         return number;
     }
 
-    /**
-     * Duplicates are an error within one import batch — one reporting period (matching sheets
-     * of the workbook); the same code in other periods is a legitimate client history and is
-     * never part of the batch because those sheets are filtered out.
-     */
     private void excludeDuplicateCodes(List<RowCommand> rows, List<ParseIssue> issues) {
         Map<String, List<RowCommand>> byCode = rows.stream()
                 .collect(Collectors.groupingBy(rowCommand -> rowCommand.command().kcrCode()));

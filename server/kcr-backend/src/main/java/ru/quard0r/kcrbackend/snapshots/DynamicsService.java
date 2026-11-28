@@ -14,17 +14,6 @@ import java.time.ZoneOffset;
 import java.util.Comparator;
 import java.util.List;
 
-/**
- * Детерминированный расчёт категорий динамики срезов клиента (§11.2 ARCHITECTURE.md).
- * Правила вычисления зеркалят ТЗ:
- * 1. not_transferred == 0                           -> NO_DEBT
- * 2. подключение < 6 месяцев до даты среза (долг > 0)-> NEWCOMER_RISK
- * 3. долг был ранее и был полностью погашен         -> REAPPEARED
- * 4. долга не было ни в одном более раннем срезе    -> FIRST_OCCURRENCE
- * 5. долг уменьшился по сравнению с предыдущим      -> DECREASING
- * 6. долг сохраняется из прошлых отчётных периодов  -> PERSISTENT
- * 7. иначе                                          -> UNCHANGED_OR_GROWING
- */
 @Service
 public class DynamicsService
 {
@@ -34,9 +23,6 @@ public class DynamicsService
             Comparator.comparing(DocumentTransferSnapshot::getSnapshotDate)
                     .thenComparing(DocumentTransferSnapshot::getId, Comparator.nullsLast(Comparator.naturalOrder()));
 
-    /**
-     * Вычислить категорию динамики для последнего среза в переданном упорядоченном префиксе.
-     */
     public DynamicsCategory classifySnapshot(List<DocumentTransferSnapshot> prefix, Instant clientCreatedAt)
     {
         if (prefix == null || prefix.isEmpty())
@@ -102,9 +88,6 @@ public class DynamicsService
         return DynamicsCategory.UNCHANGED_OR_GROWING;
     }
 
-    /**
-     * Вычислить сводную долговую информацию и текущую категорию динамики клиента.
-     */
     public ClientDebtInfo getClientDebtInfo(Client client, List<DocumentTransferSnapshot> snapshots)
     {
         if (snapshots == null || snapshots.isEmpty())

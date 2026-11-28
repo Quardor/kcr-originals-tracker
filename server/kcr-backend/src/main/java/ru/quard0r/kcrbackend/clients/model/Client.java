@@ -60,22 +60,18 @@ public class Client {
 
     private String contactEmail;
 
-    /** Этап работы — отдельно от состояния передачи документов (§11.3). */
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     @Builder.Default
     private WorkStage stage = WorkStage.NOT_IN_WORK;
 
-    /** Ответственный оператор; null — не взят в работу (§11.3). */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "assignee_id")
     private User assignee;
 
-    /** Дата следующего контакта — обновляется событием звонка (§11.2). */
     @Column(name = "next_contact_at")
     private LocalDate nextContactAt;
 
-    /** Появление в сервисе — база правила «новичок < 6 месяцев» (§11.2). */
     @CreatedDate
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

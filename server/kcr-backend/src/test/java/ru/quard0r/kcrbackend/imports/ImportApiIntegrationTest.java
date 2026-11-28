@@ -88,7 +88,6 @@ class ImportApiIntegrationTest {
         assertEquals("0987654321", inn(newCode));
         assertFalse(clientExists(incompleteCode));
 
-        // каждая затронутая загрузка строка оставляет IMPORT-событие в истории клиента (§11.2)
         Long existingId = jdbcTemplate.queryForObject(
                 "SELECT id FROM clients WHERE kcr_code = ?", Long.class, existingCode);
         Long newId = jdbcTemplate.queryForObject(
@@ -167,7 +166,6 @@ class ImportApiIntegrationTest {
                 "SELECT not_transferred_documents FROM document_transfer_snapshots "
                         + "WHERE client_id = ? AND snapshot_date = '2026-10-20'", Integer.class, clientId));
 
-        // запись среза дублируется IMPORT-событием с периодом, датой и счётчиком
         mockMvc.perform(get("/api/v1/clients/" + clientId + "/events")
                         .header("Authorization", "Bearer " + adminToken))
                 .andExpect(status().isOk())
@@ -175,7 +173,6 @@ class ImportApiIntegrationTest {
                 .andExpect(content().string(containsString(
                         "Импорт срезов (период «1 кв 2026», срез 2026-10-20): не передано 4")));
 
-        // период, которого нет в файле, — ошибка, а не пустой импорт
         mockMvc.perform(multipart("/api/v1/import/snapshots")
                         .file(upload)
                         .param("snapshotDate", "2026-10-20")
@@ -196,12 +193,6 @@ class ImportApiIntegrationTest {
                 .andExpect(status().isBadRequest());
     }
 
-    /**
-     * Template-like layout: header in row 2, the codes sit in the "Код КЦР" column; the card
-     * columns are partially filled. The first row updates an existing client (INN column is
-     * empty, so the stored value must survive), the second creates a full-card client, the
-     * third is a new client without INN/name and cannot be created.
-     */
     private byte[] clientWorkbook(String existingCode, String newCode, String incompleteCode) throws Exception {
         try (XSSFWorkbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             Sheet sheet = workbook.createSheet("Все КЦР");
@@ -228,11 +219,6 @@ class ImportApiIntegrationTest {
         }
     }
 
-    /**
-     * Real snapshot export layout: identifier in column A, only the "not transferred" counter —
-     * the total column is absent, so it is inherited from the previous snapshot. The second
-     * sheet belongs to another reporting period and must be skipped by the period filter.
-     */
     private byte[] snapshotWorkbook(String matchedCode, String unmatchedCode) throws Exception {
         try (XSSFWorkbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             Sheet sheet = workbook.createSheet("1 кв 2026");

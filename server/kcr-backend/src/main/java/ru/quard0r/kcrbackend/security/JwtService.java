@@ -10,10 +10,6 @@ import javax.crypto.SecretKey;
 import java.util.Date;
 import java.util.UUID;
 
-/**
- * Выдача access-токенов (jjwt). Проверка — на стороне ресурсного сервера:
- * SecurityConfig собирает NimbusJwtDecoder из того же ключа.
- */
 @Service
 @RequiredArgsConstructor
 public class JwtService {

@@ -5,6 +5,7 @@
 
 CREATE SEQUENCE clients_seq
     START WITH 1
+    MINVALUE 0
     INCREMENT BY 50
     NO CYCLE;
 
@@ -14,6 +15,7 @@ SELECT setval('clients_seq', COALESCE((SELECT MAX(id) FROM clients), 0));
 
 CREATE SEQUENCE client_events_seq
     START WITH 1
+    MINVALUE 0
     INCREMENT BY 50
     NO CYCLE;
 
@@ -21,6 +23,7 @@ SELECT setval('client_events_seq', COALESCE((SELECT MAX(id) FROM client_events),
 
 CREATE SEQUENCE document_transfer_snapshots_seq
     START WITH 1
+    MINVALUE 0
     INCREMENT BY 50
     NO CYCLE;
 

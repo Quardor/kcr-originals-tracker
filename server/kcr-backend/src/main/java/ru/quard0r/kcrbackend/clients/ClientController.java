@@ -102,7 +102,6 @@ public class ClientController {
         return ResponseEntity.ok(clientService.update(id, request));
     }
 
-    /** Атомарно взять свободного клиента (§11.4); админ наследует возможность оператора. */
     @PostMapping("/{id}/take")
     @PreAuthorize("hasAnyRole('ADMIN', 'OPERATOR')")
     public ResponseEntity<ClientResponse> takeClient(
@@ -112,7 +111,6 @@ public class ClientController {
         return ResponseEntity.ok(clientService.take(id, userDetails.user()));
     }
 
-    /** Переназначить/освободить ответственного (§11.4, админ). */
     @PatchMapping("/{id}/assignment")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ClientResponse> updateAssignment(
@@ -123,7 +121,6 @@ public class ClientController {
         return ResponseEntity.ok(clientService.updateAssignment(id, request, userDetails.user()));
     }
 
-    /** Сменить этап (§11.4): админ — любой, оператор — по правилам StagePolicy. */
     @PatchMapping("/{id}/stage")
     public ResponseEntity<ClientResponse> updateStage(
             @PathVariable Long id,

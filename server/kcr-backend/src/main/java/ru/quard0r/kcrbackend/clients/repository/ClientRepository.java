@@ -19,11 +19,6 @@ public interface ClientRepository extends JpaRepository<Client, Long>, JpaSpecif
 
     List<Client> findByKcrCodeIn(Collection<String> kcrCodes);
 
-    /**
-     * Атомарное взятие свободного клиента (§11.2): условный UPDATE гарантирует,
-     * что два оператора не займут одного клиента; 0 строк — клиент занят или не
-     * существует.
-     */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE Client c SET c.assignee.id = :userId WHERE c.id = :clientId AND c.assignee IS NULL")
     int assignAssigneeIfFree(@Param("clientId") Long clientId, @Param("userId") Long userId);

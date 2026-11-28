@@ -45,7 +45,6 @@ class SnapshotExcelParserTest {
                 new ByteArrayInputStream(snapshotWorkbook()), snapshotDate, "  1 КВ 2026  ");
 
         assertEquals(2, result.getCommands().size());
-        // канонический период — введённое значение как есть (без краёв), а не имя листа
         assertEquals("1 КВ 2026", result.getCommands().get(0).reportingPeriod());
     }
 
@@ -76,7 +75,6 @@ class SnapshotExcelParserTest {
     @Test
     void reportsDuplicatesAcrossSheetsOfSamePeriod() throws IOException {
         try (XSSFWorkbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            // два имени, неразличимые после нормализации, — оба листа попадают в один период
             Sheet first = workbook.createSheet("1 кв 2026");
             header(first);
             row(first, 2, "ISE83063", 100, 10);
@@ -101,7 +99,6 @@ class SnapshotExcelParserTest {
 
         assertEquals(0, result.getCommands().size());
         assertTrue(result.getIssues().isEmpty());
-        // пустой лист «3 кв 2026» не отчётлив — данных нет
         assertEquals(List.of("1 кв 2026", "2 кв 2026"), result.getSkippedSheets());
     }
 
@@ -246,10 +243,6 @@ class SnapshotExcelParserTest {
         }
     }
 
-    /**
-     * Layout of the real snapshot export: header in row 2, identifier in column A
-     * ("Уникальны обезличинный идентификатор"), "код СЦ"/"название СЦ" columns stay empty.
-     */
     private byte[] snapshotWorkbook() throws IOException {
         try (XSSFWorkbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             Sheet first = workbook.createSheet("1 кв 2026");

@@ -102,12 +102,6 @@ final class ExcelCells {
         return CellReference.convertNumToColString(columnIndex);
     }
 
-    /**
-     * Returns the 0-based index of the header row: the first row within the scan window
-     * where at least one cell matches a known header alias, or — when nothing matched —
-     * the first row with at least three filled cells. Both real export kinds keep the
-     * header in row 2 with row 1 left empty.
-     */
     static int findHeaderRow(Sheet sheet, Set<String> allAliases) {
         int lastRow = Math.min(sheet.getLastRowNum(), HEADER_SCAN_ROWS - 1);
         int fallback = -1;
@@ -138,10 +132,6 @@ final class ExcelCells {
         return fallback;
     }
 
-    /**
-     * A row is blank when none of its cells carries a value; a lone "#N/A" paste artifact
-     * makes the row non-blank so that it surfaces as a row issue instead of being skipped.
-     */
     static boolean isBlankRow(Row row) {
         if (row == null) {
             return true;
@@ -179,12 +169,6 @@ final class ExcelCells {
         return false;
     }
 
-    /**
-     * Locates the column holding KCR codes. Header aliases are trusted when the column
-     * they point at actually contains code-shaped values; the client export breaks that
-     * assumption ("Код КЦР" heads an empty column while the codes sit in the headerless
-     * column A), so a column of code-shaped values wins over an empty aliased one.
-     */
     static int locateCodeColumn(Sheet sheet, int headerRowIndex) {
         List<Integer> aliasedColumns = aliasedColumns(sheet, headerRowIndex, KCR_CODE_ALIASES);
         Map<Integer, Integer> codeMatches = new HashMap<>();

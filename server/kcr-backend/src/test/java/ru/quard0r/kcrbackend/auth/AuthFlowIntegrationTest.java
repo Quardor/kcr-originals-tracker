@@ -100,7 +100,6 @@ class AuthFlowIntegrationTest {
                         .content("{\"refreshToken\":\"" + refreshToken + "\"}"))
                 .andExpect(status().isUnauthorized());
 
-        // The family is revoked: the freshly issued token dies together with the reused one.
         mockMvc.perform(post("/api/v1/auth/refresh")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"refreshToken\":\"" + newRefreshToken + "\"}"))
@@ -119,9 +118,6 @@ class AuthFlowIntegrationTest {
                 .andReturn();
         String refreshToken = extractField(register.getResponse().getContentAsString(), "refreshToken");
 
-        // With FOR UPDATE on the token row the outcome is the same under any interleaving:
-        // the first transaction commits the rotation, the rest see the rotated token and trip
-        // reuse detection, which revokes the family together with the winner's fresh token.
         int threads = 4;
         ExecutorService executor = Executors.newFixedThreadPool(threads);
         CountDownLatch start = new CountDownLatch(1);
@@ -154,7 +150,6 @@ class AuthFlowIntegrationTest {
             assertEquals(1, okCount);
             assertNotEquals("", winnerToken);
 
-            // The losers' reuse detection revoked the whole family, winner's fresh token included.
             mockMvc.perform(post("/api/v1/auth/refresh")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"refreshToken\":\"" + winnerToken + "\"}"))
@@ -163,7 +158,6 @@ class AuthFlowIntegrationTest {
             executor.shutdownNow();
         }
 
-        // The user recovers by logging in again.
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}"))
@@ -183,7 +177,6 @@ class AuthFlowIntegrationTest {
         String accessToken = extractField(register.getResponse().getContentAsString(), "accessToken");
         String registerRefreshToken = extractField(register.getResponse().getContentAsString(), "refreshToken");
 
-        // A second session of the same user: logout must kill both token families.
         MvcResult login = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}"))
@@ -208,7 +201,6 @@ class AuthFlowIntegrationTest {
                         .content("{\"refreshToken\":\"" + loginRefreshToken + "\"}"))
                 .andExpect(status().isUnauthorized());
 
-        // The user recovers by logging in again.
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}"))
@@ -232,14 +224,11 @@ class AuthFlowIntegrationTest {
                     .andExpect(status().isUnauthorized());
         }
 
-        // The correct password is rejected too: the account is locked, the response stays
-        // the same single 401 as for wrong credentials (no reason is disclosed).
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}"))
                 .andExpect(status().isUnauthorized());
 
-        // Expire the lock directly instead of waiting out the configured duration.
         jdbcTemplate.update(
                 "UPDATE users SET locked_until = now() - interval '1 second' WHERE username = ?", username);
 
@@ -260,7 +249,6 @@ class AuthFlowIntegrationTest {
         String username = "ituser-" + UUID.randomUUID();
         String password = "password123";
 
-        // The register request consumes the first token of the username+IP bucket.
         mockMvc.perform(post("/api/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}"))
@@ -282,8 +270,6 @@ class AuthFlowIntegrationTest {
 
     @Test
     void accessTokenOfDeletedUserIsRejectedWith401() throws Exception {
-        // Подпись верна, но пользователя больше нет: конвертер бросает AuthenticationException,
-        // 401 в едином контракте — а не 500 из-за исключения внутри фильтрации.
         String username = "ituser-" + UUID.randomUUID();
         MvcResult register = mockMvc.perform(post("/api/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -334,8 +320,6 @@ class AuthFlowIntegrationTest {
 
     @Test
     void usernameAndEmailUniquenessAndLoginAreCaseInsensitive() throws Exception {
-        // П. 30 §10: уникальность username/email — по lower(...), записи хранятся
-        // в нижнем регистре, вход не чувствителен к регистру.
         String suffix = UUID.randomUUID().toString().substring(0, 8);
         String username = "caseuser-" + suffix;
         String password = "password123";

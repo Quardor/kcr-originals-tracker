@@ -82,8 +82,6 @@ public class SecurityConfig {
         return source;
     }
 
-    // HS256 закреплён и в выдаче (JwtService), и здесь — алгоритм декодера обязан
-    // совпадать с алгоритмом выдачи; валидация подписи и срока — Nimbus.
     @Bean
     public JwtDecoder jwtDecoder(SecretKey jwtSecretKey) {
         return NimbusJwtDecoder.withSecretKey(jwtSecretKey)

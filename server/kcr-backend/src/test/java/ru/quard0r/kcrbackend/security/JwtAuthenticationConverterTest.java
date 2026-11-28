@@ -71,7 +71,6 @@ class JwtAuthenticationConverterTest {
 
     @Test
     void legacyUsernameSubjectIsRejected() {
-        // До смены subject на id (п. 13 §10) subject был username — такие токены невалидны.
         assertThrows(InvalidBearerTokenException.class, () -> converter.convert(jwt("user")));
         verifyNoInteractions(userDetailsService);
     }

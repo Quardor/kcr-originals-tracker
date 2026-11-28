@@ -7,10 +7,6 @@ import ru.quard0r.kcrbackend.users.repository.UserRepository;
 
 import java.util.List;
 
-/**
- * Справочник пользователей для административных операций (переназначение
- * ответственного, §11.4): только админ, только идентификационные поля.
- */
 @Service
 @RequiredArgsConstructor
 public class UserService {

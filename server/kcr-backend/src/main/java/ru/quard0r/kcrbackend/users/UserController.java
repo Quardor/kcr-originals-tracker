@@ -10,10 +10,6 @@ import ru.quard0r.kcrbackend.users.dto.UserResponse;
 
 import java.util.List;
 
-/**
- * Справочник пользователей для административных операций (переназначение
- * ответственного, §11.4): только админ, только идентификационные поля.
- */
 @RestController
 @RequestMapping("/api/v1/users")
 @RequiredArgsConstructor

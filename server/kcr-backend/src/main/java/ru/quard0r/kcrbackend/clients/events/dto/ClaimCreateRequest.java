@@ -7,10 +7,6 @@ import ru.quard0r.kcrbackend.clients.events.ClaimStatus;
 
 import java.time.LocalDate;
 
-/**
- * Регистрация претензии администратором (§11.4). Статус можно задать сразу
- * (например, при вводе истории); по умолчанию NEW. Номер иммутабелен.
- */
 public record ClaimCreateRequest (
         @NotBlank(message = "Claim number must not be blank")
         @Size(max = 64, message = "Claim number must be up to 64 characters")

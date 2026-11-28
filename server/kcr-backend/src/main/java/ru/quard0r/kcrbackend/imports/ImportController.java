@@ -20,11 +20,6 @@ import ru.quard0r.kcrbackend.security.CustomUserDetails;
 
 import java.time.LocalDate;
 
-/**
- * Excel import (ARCHITECTURE.md §11.4): preview validates the file against the current state
- * without writing, the apply endpoints write in one transaction and return a report with
- * row-level issues.
- */
 @RestController
 @RequestMapping("/api/v1/import")
 @RequiredArgsConstructor

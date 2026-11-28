@@ -11,6 +11,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -39,11 +41,15 @@ class ClientApiIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    // Клиенты, созданные через API, получают канонические коды ITE##### (п. 29 §10):
-    // 5 цифр не уникальны между запусками — записи убираются после каждого теста.
+    private final List<Long> createdClientIds = new ArrayList<>();
+
     @AfterEach
-    void deleteApiCreatedClients() {
-        jdbcTemplate.update("DELETE FROM clients WHERE kcr_code LIKE 'ITE%'");
+    void deleteClientsCreatedDuringTest() {
+        for (Long clientId : createdClientIds) {
+            jdbcTemplate.update("DELETE FROM document_transfer_snapshots WHERE client_id = ?", clientId);
+            jdbcTemplate.update("DELETE FROM client_events WHERE client_id = ?", clientId);
+            jdbcTemplate.update("DELETE FROM clients WHERE id = ?", clientId);
+        }
     }
 
     private String iteCode(String uuidSuffix) {
@@ -99,8 +105,6 @@ class ClientApiIntegrationTest {
                         .header("Authorization", "Bearer " + operatorToken))
                 .andExpect(status().isBadRequest());
 
-        // Пагинация валидируется constraint-аннотациями (п. 28 §10): page < 0 и
-        // size вне [1, 100] — 400 в едином контракте, а не 500/выгрузка всей таблицы.
         mockMvc.perform(get("/api/v1/clients").param("page", "-1")
                         .header("Authorization", "Bearer " + operatorToken))
                 .andExpect(status().isBadRequest())
@@ -170,8 +174,6 @@ class ClientApiIntegrationTest {
                         .content("{\"inn\":\"123\"}"))
                 .andExpect(status().isBadRequest());
 
-        // ИНН юрлица — 10 цифр: правило DTO теперь то же, что у парсера импорта
-        // (п. 29 §10), раньше ручной PATCH/POST принимал только 12 цифр.
         mockMvc.perform(patch("/api/v1/clients/" + clientId)
                         .header("Authorization", "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -203,6 +205,7 @@ class ClientApiIntegrationTest {
                 .andExpect(status().isCreated())
                 .andExpect(content().string(containsString(kcrCode)))
                 .andExpect(content().string(containsString("Created Organization")));
+        rememberCreatedClient(kcrCode);
 
         mockMvc.perform(get("/api/v1/clients").param("search", kcrCode.substring(3))
                         .header("Authorization", "Bearer " + operatorToken))
@@ -229,8 +232,6 @@ class ClientApiIntegrationTest {
                                 + "\"organizationName\":\"Organization\"}"))
                 .andExpect(status().isBadRequest());
 
-        // Код KCR канонизируется при записи (п. 29 §10): рукотворный ввод в другом
-        // регистре/с пробелами сопоставим с импортированным кодом.
         mockMvc.perform(post("/api/v1/clients")
                         .header("Authorization", "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -238,8 +239,8 @@ class ClientApiIntegrationTest {
                                 + "\"organizationName\":\"Normalized Code Organization\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(content().string(containsString("ITE99997")));
+        rememberCreatedClient("ITE99997");
 
-        // Формат кода проверяется и вручную: не 3 буквы + 5 цифр — 400.
         mockMvc.perform(post("/api/v1/clients")
                         .header("Authorization", "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -247,13 +248,13 @@ class ClientApiIntegrationTest {
                                 + "\"organizationName\":\"Organization\"}"))
                 .andExpect(status().isBadRequest());
 
-        // ИНН юрлица — 10 цифр, как в выгрузке импорта (п. 29 §10).
         mockMvc.perform(post("/api/v1/clients")
                         .header("Authorization", "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"kcrCode\":\"ITE99996\",\"inn\":\"1234567890\","
                                 + "\"organizationName\":\"Ten Digit Inn Organization\"}"))
                 .andExpect(status().isCreated());
+        rememberCreatedClient("ITE99996");
     }
 
     @Test
@@ -262,8 +263,6 @@ class ClientApiIntegrationTest {
         String kcrCode = iteCode(suffix);
         String adminToken = registerAndLogin("itemail-adm-" + suffix, true);
 
-        // Surrounding whitespace used to fail @Email (400); it is trimmed in the
-        // DTO constructor before validation and stored normalized.
         mockMvc.perform(post("/api/v1/clients")
                         .header("Authorization", "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -271,12 +270,12 @@ class ClientApiIntegrationTest {
                                 + "\"organizationName\":\"Organization\",\"contactEmail\":\" contact@mail.com \"}"))
                 .andExpect(status().isCreated())
                 .andExpect(content().string(containsString("contact@mail.com")));
+        rememberCreatedClient(kcrCode);
 
         Long clientId = jdbcTemplate.queryForObject(
                 "SELECT id FROM clients WHERE kcr_code = ?", Long.class, kcrCode);
         assertEquals("contact@mail.com", contactEmail(clientId));
 
-        // Blank contact email is normalized to null = "do not change" (PATCH semantics).
         mockMvc.perform(patch("/api/v1/clients/" + clientId)
                         .header("Authorization", "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -289,7 +288,14 @@ class ClientApiIntegrationTest {
         jdbcTemplate.update(
                 "INSERT INTO clients (kcr_code, inn, organization_name, client_type, flags) VALUES (?, ?, ?, ?, ?)",
                 kcrCode, "123456789012", organizationName, clientType, flags);
-        return jdbcTemplate.queryForObject("SELECT id FROM clients WHERE kcr_code = ?", Long.class, kcrCode);
+        Long clientId = jdbcTemplate.queryForObject("SELECT id FROM clients WHERE kcr_code = ?", Long.class, kcrCode);
+        createdClientIds.add(clientId);
+        return clientId;
+    }
+
+    private void rememberCreatedClient(String kcrCode) {
+        createdClientIds.add(jdbcTemplate.queryForObject(
+                "SELECT id FROM clients WHERE kcr_code = ?", Long.class, kcrCode));
     }
 
     private void insertSnapshot(Long clientId, String reportingPeriod, LocalDate snapshotDate,

@@ -29,7 +29,6 @@ public class ClientEventController {
 
     private final ClientEventService eventService;
 
-    /** История клиента — новые события к старым (§11.4). */
     @GetMapping
     public ResponseEntity<PageResponse<EventResponse>> getEvents(
             @PathVariable Long id,
@@ -44,7 +43,6 @@ public class ClientEventController {
         return ResponseEntity.ok(eventService.getEvents(id, pageRequest));
     }
 
-    /** Создать событие вручную: CALL/LETTER_SENT/COMMENT (§11.4). */
     @PostMapping
     public ResponseEntity<EventResponse> createEvent(
             @PathVariable Long id,

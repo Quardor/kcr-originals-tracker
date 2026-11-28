@@ -16,14 +16,6 @@ import ru.quard0r.kcrbackend.common.error.DomainException;
 import ru.quard0r.kcrbackend.common.error.ErrorCode;
 import ru.quard0r.kcrbackend.users.model.User;
 
-/**
- * Единая история клиента (§11.2–11.4): выдача хронологически от новых к старым,
- * ручное создание событий CALL/LETTER_SENT/COMMENT. Звонок (CALL) обновляет
- * clients.next_contact_at и — при указании stage — меняет этап по правилам
- * StagePolicy, создавая отдельное событие STAGE_CHANGED в той же транзакции.
- * Системные события (STAGE_CHANGED, ASSIGNEE_CHANGED, IMPORT, CLAIM, SANCTION)
- * вручную не заводятся, их пишут сервисы через {@link #record}.
- */
 @Service
 @RequiredArgsConstructor
 public class ClientEventService {
@@ -76,10 +68,6 @@ public class ClientEventService {
         return EventResponse.from(event);
     }
 
-    /**
-     * Системное событие о мутации (смена этапа, переназначение, импорт, претензия,
-     * санкция) — единая точка записи аудита (§11.2).
-     */
     @Transactional
     public void record(Client client, User author, ClientEventType type, String comment) {
         eventRepository.save(ClientEvent.builder()
