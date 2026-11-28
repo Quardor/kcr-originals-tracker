@@ -1,6 +1,7 @@
 package ru.quard0r.kcrbackend.imports;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -23,12 +24,12 @@ import ru.quard0r.kcrbackend.snapshots.repository.DocumentTransferSnapshotReposi
 import java.io.IOException;
 import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class SnapshotImportService {
@@ -39,24 +40,28 @@ public class SnapshotImportService {
     private final DynamicsService dynamicsService;
     private final SnapshotExcelParser parser = new SnapshotExcelParser();
 
+    @Transactional(readOnly = true)
     public SnapshotImportPreview preview(MultipartFile file, LocalDate snapshotDate, String reportingPeriod) {
         ParseResult<SnapshotCreateCommand> result = parse(file, snapshotDate, reportingPeriod);
         Map<String, Client> clients = loadClients(result.getCommands());
+        Matching matching = matchClients(result.getCommands(), clients);
 
-        List<SnapshotPreviewRow> rows = new ArrayList<>();
-        List<String> unmatchedKcrCodes = new ArrayList<>();
-        List<ParseIssue> issues = new ArrayList<>(result.getIssues());
-        for (SnapshotCreateCommand command : result.getCommands()) {
+        List<SnapshotCreateCommand> inheritingTotal = matching.matched().stream()
+                .filter(command -> command.totalDocuments() == null)
+                .toList();
+        Map<Long, List<DocumentTransferSnapshot>> historyByClientId = loadHistory(inheritingTotal, clients);
+
+        List<SnapshotPreviewRow> rows = new ArrayList<>(matching.matched().size());
+        for (SnapshotCreateCommand command : matching.matched()) {
             Client client = clients.get(command.kcrCode());
-            if (client == null) {
-                unmatchedKcrCodes.add(command.kcrCode());
-                continue;
-            }
+            List<DocumentTransferSnapshot> existing =
+                    historyByClientId.getOrDefault(client.getId(), List.of());
             rows.add(new SnapshotPreviewRow(command.kcrCode(), command.reportingPeriod(),
                     command.snapshotDate(), command.totalDocuments(),
-                    resolveTotal(client, command), command.notTransferredDocuments()));
+                    resolveTotalFromHistory(existing, command), command.notTransferredDocuments()));
         }
-        return new SnapshotImportPreview(rows, unmatchedKcrCodes, result.getSkippedSheets(), issues);
+        return new SnapshotImportPreview(rows, matching.unmatchedKcrCodes(), result.getSkippedSheets(),
+                result.getIssues());
     }
 
     @Transactional
@@ -64,36 +69,18 @@ public class SnapshotImportService {
                                       String reportingPeriod, User author) {
         ParseResult<SnapshotCreateCommand> result = parse(file, snapshotDate, reportingPeriod);
         Map<String, Client> clients = loadClients(result.getCommands());
-
-        List<String> unmatchedKcrCodes = new ArrayList<>();
-        List<ParseIssue> issues = new ArrayList<>(result.getIssues());
-
-        List<SnapshotCreateCommand> matched = new ArrayList<>();
-        for (SnapshotCreateCommand command : result.getCommands()) {
-            if (clients.containsKey(command.kcrCode())) {
-                matched.add(command);
-            } else {
-                unmatchedKcrCodes.add(command.kcrCode());
-            }
+        Matching matching = matchClients(result.getCommands(), clients);
+        if (matching.matched().isEmpty()) {
+            return new SnapshotImportReport(0, matching.unmatchedKcrCodes(), result.getSkippedSheets(),
+                    result.getIssues());
         }
 
-        if (matched.isEmpty()) {
-            return new SnapshotImportReport(0, unmatchedKcrCodes, result.getSkippedSheets(), issues);
-        }
-
-        List<Long> clientIds = matched.stream()
-                .map(c -> clients.get(c.kcrCode()).getId())
-                .distinct()
-                .toList();
         Map<Long, List<DocumentTransferSnapshot>> historyByClientId =
-                snapshotRepository.findByClientIdInOrderByClientIdAscSnapshotDateAscIdAsc(clientIds)
-                        .stream()
-                        .collect(Collectors.groupingBy(s -> s.getClient().getId()));
+                loadHistory(matching.matched(), clients);
 
-        List<DocumentTransferSnapshot> toSave = new ArrayList<>(matched.size());
-        List<ClientEvent> events = new ArrayList<>(matched.size());
-
-        for (SnapshotCreateCommand command : matched) {
+        List<DocumentTransferSnapshot> toSave = new ArrayList<>(matching.matched().size());
+        List<ClientEvent> events = new ArrayList<>(matching.matched().size());
+        for (SnapshotCreateCommand command : matching.matched()) {
             Client client = clients.get(command.kcrCode());
             List<DocumentTransferSnapshot> existing =
                     historyByClientId.getOrDefault(client.getId(), List.of());
@@ -128,7 +115,8 @@ public class SnapshotImportService {
         snapshotRepository.saveAll(toSave);
         eventRepository.saveAll(events);
 
-        return new SnapshotImportReport(toSave.size(), unmatchedKcrCodes, result.getSkippedSheets(), issues);
+        return new SnapshotImportReport(toSave.size(), matching.unmatchedKcrCodes(),
+                result.getSkippedSheets(), result.getIssues());
     }
 
     private ParseResult<SnapshotCreateCommand> parse(MultipartFile file, LocalDate snapshotDate,
@@ -143,6 +131,8 @@ public class SnapshotImportService {
         try {
             result = parser.parse(file.getInputStream(), snapshotDate, reportingPeriod);
         } catch (IOException | RuntimeException e) {
+            log.warn("Snapshot import file rejected: {}", e.toString());
+            log.debug("Snapshot import file parsing failure", e);
             throw new DomainException(ErrorCode.IMPORT_FILE_UNREADABLE);
         }
         if (result.getCommands().isEmpty() && result.getIssues().isEmpty()
@@ -161,6 +151,33 @@ public class SnapshotImportService {
                 .collect(Collectors.toMap(Client::getKcrCode, Function.identity()));
     }
 
+    private Matching matchClients(List<SnapshotCreateCommand> commands, Map<String, Client> clients) {
+        List<SnapshotCreateCommand> matched = new ArrayList<>();
+        List<String> unmatchedKcrCodes = new ArrayList<>();
+        for (SnapshotCreateCommand command : commands) {
+            if (clients.containsKey(command.kcrCode())) {
+                matched.add(command);
+            } else {
+                unmatchedKcrCodes.add(command.kcrCode());
+            }
+        }
+        return new Matching(matched, unmatchedKcrCodes);
+    }
+
+    private Map<Long, List<DocumentTransferSnapshot>> loadHistory(List<SnapshotCreateCommand> commands,
+                                                                   Map<String, Client> clients) {
+        if (commands.isEmpty()) {
+            return Map.of();
+        }
+        List<Long> clientIds = commands.stream()
+                .map(command -> clients.get(command.kcrCode()).getId())
+                .distinct()
+                .toList();
+        return snapshotRepository.findByClientIdInOrderByClientIdAscSnapshotDateAscIdAsc(clientIds)
+                .stream()
+                .collect(Collectors.groupingBy(snapshot -> snapshot.getClient().getId()));
+    }
+
     private Integer resolveTotalFromHistory(List<DocumentTransferSnapshot> history,
                                             SnapshotCreateCommand command) {
         if (command.totalDocuments() != null) {
@@ -175,14 +192,6 @@ public class SnapshotImportService {
         return null;
     }
 
-    private Integer resolveTotal(Client client, SnapshotCreateCommand command) {
-        if (command.totalDocuments() != null) {
-            return command.totalDocuments();
-        }
-        return snapshotRepository
-                .findFirstByClientIdAndReportingPeriodOrderBySnapshotDateDescIdDesc(
-                        client.getId(), command.reportingPeriod())
-                .map(DocumentTransferSnapshot::getTotalDocuments)
-                .orElse(null);
+    private record Matching(List<SnapshotCreateCommand> matched, List<String> unmatchedKcrCodes) {
     }
 }
