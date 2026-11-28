@@ -271,10 +271,9 @@ class ClientQuery:
 
 @dataclass(frozen=True, slots=True)
 class Principal:
-    """Authenticated user decoded from a kcr-backend access token."""
+    """Acting user as asserted by kcr-backend for one request or connection."""
 
     user_id: int
-    username: str
     role: str
     token: str = field(repr=False)
 

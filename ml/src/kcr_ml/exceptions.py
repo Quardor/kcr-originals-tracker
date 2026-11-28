@@ -39,6 +39,11 @@ class AccessDeniedError(AppError):
     http_status = 403
 
 
+class InternalTokenRejectedError(AppError):
+    code = "INTERNAL_TOKEN_REJECTED"
+    http_status = 401
+
+
 class ResourceNotFoundError(AppError):
     code = "RESOURCE_NOT_FOUND"
     http_status = 404

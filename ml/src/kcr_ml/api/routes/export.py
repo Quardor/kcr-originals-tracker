@@ -7,7 +7,14 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Response
 
-from kcr_ml.api.deps import get_data_source, get_exporter, get_settings, get_today, require_admin
+from kcr_ml.api.deps import (
+    get_data_source,
+    get_exporter,
+    get_settings,
+    get_today,
+    require_admin,
+    require_internal_token,
+)
 from kcr_ml.api.schemas.rest import ExportRequest, TablePayload
 from kcr_ml.application.export_service import build_tables, render
 from kcr_ml.application.ports import DataSourcePort, ExcelExporterPort
@@ -15,7 +22,7 @@ from kcr_ml.config import Settings
 from kcr_ml.domain.model import Column, Principal, TabularData
 from kcr_ml.exceptions import ValidationFailedError
 
-router = APIRouter(prefix="/api/v1/ai", tags=["export"])
+router = APIRouter(prefix="/api/v1/ai", tags=["export"], dependencies=[Depends(require_internal_token)])
 
 XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 MAX_EXPORT_ROWS = 10_000

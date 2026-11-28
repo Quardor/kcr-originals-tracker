@@ -3,23 +3,25 @@
 Python/FastAPI-сервис ИИ-помощника поверх данных kcr-backend: чат с данными,
 сводки перед звонком, приоритизация клиентов, аналитика для дашбордов и экспорт
 в Excel. Read-only по построению: мутирующих путей нет ни на одном слое.
+Сервис отвечает только kcr-backend — браузер в него не ходит, порт наружу не публикуется.
 Архитектура и контракты — в [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## Стек
 
 Python ≥ 3.12, FastAPI + uvicorn, Pydantic v2 (pydantic-settings), httpx,
-OpenAI-совместимый LLM-клиент (облачный API и локальный Qwen), PyJWT,
+OpenAI-совместимый LLM-клиент (облачный API и локальный Qwen),
 openpyxl/pandas, uv (пакетный менеджер), ruff (линт/формат), pytest.
 
 ## Запуск (разработка)
 
 Нужны: [uv](https://docs.astral.sh/uv/), kcr-backend на `KCR_BACKEND_BASE_URL`
-(dev: `http://localhost:8080`), общий `jwt.secret` и доступ к LLM-провайдеру.
+(dev: `http://localhost:8080`), `AUTH_INTERNAL_TOKEN` (то же значение, что
+`ML_INTERNAL_TOKEN` бэкенда) и доступ к LLM-провайдеру.
 
 ```bash
-cp .env.example .env        # заполнить секреты (AUTH_JWT_SECRET, LLM_*)
+cp .env.example .env        # заполнить секреты (AUTH_INTERNAL_TOKEN, LLM_*)
 uv sync                     # окружение из uv.lock
-uv run uvicorn kcr_ml.main:app --reload   # http://localhost:8000
+uv run uvicorn kcr_ml.main:app --reload   # http://localhost:8000 — зовёт только kcr-backend
 ```
 
 Приложение читает переменные окружения и (если они не заданы) файл `.env` в текущем
@@ -43,14 +45,16 @@ Docker: ml входит в единый стенд монорепозитори�
 
 ## API
 
-Префикс `/api/v1/ai/**`, аутентификация — Bearer access-токен kcr-backend
-(проверяется HS256 общим секретом и пробрасывается в бэкенд как есть).
+Префикс `/api/v1/ai/**`. Сервис вызывает только kcr-backend: каждый защищённый эндпоинт
+требует внутренний сервисный токен `X-Internal-Token` и заголовки личности (`X-Kcr-User-Id`,
+`X-Kcr-User-Role`), которые ставит бэкенд после проверки; access-токен пользователя
+пробрасывается бэкендом как есть, права на данные считает бэкенд.
 Публичный — только `GET /health`. Полный контракт — §7 ARCHITECTURE.md;
 
 | Эндпоинт | Роль | Назначение |
 |---|---|---|
 | `GET /health` | — | liveness |
-| `WS /api/v1/ai/chat?token=…` | обе | UC-1 чат (стриминг + tool calling + таблицы) |
+| `WS /api/v1/ai/chat` | обе | UC-1 чат (стриминг + tool calling + таблицы); соединение открывает kcr-backend по одноразовому ticket браузера |
 | `GET /api/v1/ai/clients/{id}/brief` | обе | UC-2 сводка перед звонком |
 | `POST /api/v1/ai/prioritize` | админ | UC-3 приоритетная выборка |
 | `GET /api/v1/ai/analytics/{summary,dynamics,top-debt,operators}` | обе | UC-4 агрегаты |
@@ -61,7 +65,8 @@ Docker: ml входит в единый стенд монорепозитори�
 Все пункты 1–8 реализованы 2026-11-08 (ветка `feature/ai-agent`, слита в `develop` через PR #9):
 
 1. Каркас: uv-проект, ruff, config, `/health`, Dockerfile + compose — готово.
-2. Аутентификация (JWT kcr-backend) + `DataSourcePort` на httpx — готово.
+2. Аутентификация + `DataSourcePort` на httpx — готово (в 2026-11-08 — JWT kcr-backend,
+   с 2026-11-28 — внутренний сервисный токен вместо проверки JWT).
 3. Аналитика (UC-4, без LLM) — готово.
 4. Prioritize (UC-3): `LlmPort` + OpenAI-совместимый адаптер, скоринг в domain — готово.
 5. Brief (UC-2) — готово.
@@ -83,8 +88,8 @@ Docker: ml входит в единый стенд монорепозитори�
 - аналитика и приоритизация обрабатывают не более `AI_MAX_SCAN_CLIENTS` клиентов (по умолчанию
   500) и ходят в бэкенд отдельным запросом за срезами каждого клиента — при большей базе
   числа неполные, признака усечения в ответе нет;
-- access-токен WebSocket передаётся в query-строке и попадает в access-логи; лимитов частоты
-  на LLM-эндпоинты нет;
+- чат открывается по одноразовому ticket, который браузер получает у kcr-backend
+  (токены в query-строке и логах не фигурируют); лимитов частоты на LLM-эндпоинты нет;
 - «в работе» определяется по этапу, а бэкенд не меняет этап при взятии клиента;
 - в экспорте xlsx строки, начинающиеся с `=`, становятся формулами.
 
@@ -94,6 +99,6 @@ Docker: ml входит в единый стенд монорепозитори�
   и скоринг, промпты;
 - `src/kcr_ml/application/` — use-case'ы и порты (`ports.py`);
 - `src/kcr_ml/infrastructure/` — адаптеры: LLM (OpenAI-совместимый), данные
-  (httpx, только GET), Excel, JWT;
+  (httpx, только GET), Excel;
 - `src/kcr_ml/api/` — REST-роутеры, WebSocket, Pydantic-схемы;
 - `tests/` — unit (фейки портов), integration (ASGI), scenarios (приёмка ТЗ).

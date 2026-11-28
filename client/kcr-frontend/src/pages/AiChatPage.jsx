@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { openChatSocket } from '../api/ai';
+import { errorMessage } from '../api/errors';
 import { ErrorBox, Spinner } from '../components/ui';
 import { aiToolLabel } from '../labels';
 
 /**
- * UC-1: чат с AI-помощником (WebSocket /api/v1/ai/chat, протокол §7 ARCHITECTURE.md
- * kcr-ml). История — в памяти соединения: переподключение начинает новую сессию.
- * Ответы стримятся порциями (assistant_delta), выборки данных приходят отдельным
+ * UC-1: чат с AI-помощником (WebSocket /api/v1/ai/chat через kcr-backend, протокол §7
+ * ARCHITECTURE.md kcr-ml). История — в памяти соединения: переподключение начинает новую
+ * сессию. Ответы стримятся порциями (assistant_delta), выборки данных приходят отдельным
  * кадром data и рендерятся таблицей — числа всегда из источника, не из текста LLM.
  */
 
@@ -28,6 +29,7 @@ export default function AiChatPage() {
   const socketRef = useRef(null);
   const assistantIdRef = useRef(null);
   const logRef = useRef(null);
+  const connectAttemptRef = useRef(0);
 
   const scrollDown = useCallback(() => {
     requestAnimationFrame(() => {
@@ -56,10 +58,26 @@ export default function AiChatPage() {
     scrollDown();
   }, [ensureAssistant, scrollDown]);
 
-  const connect = useCallback(() => {
+  const connect = useCallback(async () => {
+    const attempt = ++connectAttemptRef.current;
     setError(null);
     setConnecting(true);
-    const socket = openChatSocket();
+
+    let socket;
+    try {
+      socket = await openChatSocket();
+    } catch (err) {
+      if (attempt === connectAttemptRef.current) {
+        setConnecting(false);
+        setError(errorMessage(err));
+      }
+      return null;
+    }
+    // Пока выдавался ticket, страница размонтировалась или началось новое подключение
+    if (attempt !== connectAttemptRef.current) {
+      socket.close(1000);
+      return null;
+    }
     socketRef.current = socket;
 
     socket.onopen = () => {
@@ -104,9 +122,7 @@ export default function AiChatPage() {
       setStreaming(false);
       assistantIdRef.current = null;
       setConnecting(false);
-      if (event.code === 4401) {
-        setError('Сессия истекла: войдите заново и вернитесь в чат.');
-      } else if (event.code !== 1000 && messages.length === 0) {
+      if (event.code !== 1000 && messages.length === 0) {
         setError('Соединение с AI-сервисом закрыто.');
       }
     };
@@ -114,10 +130,14 @@ export default function AiChatPage() {
   }, [appendDelta, messages.length, patchAssistant, scrollDown]);
 
   useEffect(() => {
-    const socket = connect();
+    connect();
     return () => {
-      socket.onclose = null; // размонтирование — не показываем ошибку закрытия
-      socket.close(1000);
+      connectAttemptRef.current += 1;
+      const socket = socketRef.current;
+      if (socket) {
+        socket.onclose = null; // размонтирование — не показываем ошибку закрытия
+        socket.close(1000);
+      }
     };
     // connect зависит от messages.length только для текста ошибки; переподключение вручную
     // eslint-disable-next-line react-hooks/exhaustive-deps

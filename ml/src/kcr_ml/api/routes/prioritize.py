@@ -15,6 +15,7 @@ from kcr_ml.api.deps import (
     get_settings,
     get_today,
     require_admin,
+    require_internal_token,
 )
 from kcr_ml.api.schemas.rest import CriteriaOut, PrioritizedItemOut, PrioritizeOut, PrioritizeRequest
 from kcr_ml.application.ports import DataSourcePort, LlmPort
@@ -23,7 +24,7 @@ from kcr_ml.config import Settings
 from kcr_ml.domain.criteria import ScoringWeights
 from kcr_ml.domain.model import Principal
 
-router = APIRouter(prefix="/api/v1/ai", tags=["prioritize"])
+router = APIRouter(prefix="/api/v1/ai", tags=["prioritize"], dependencies=[Depends(require_internal_token)])
 
 
 @router.post("/prioritize", response_model=PrioritizeOut)

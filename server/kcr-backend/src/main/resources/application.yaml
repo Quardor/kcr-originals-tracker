@@ -40,3 +40,7 @@ app:
       lock-duration: 15m
   cleanup:
     refresh-token-cron: "0 0 4 * * *"
+  ml:
+    connect-timeout-ms: 3000
+    read-timeout-ms: 240000
+    internal-token: ${ML_INTERNAL_TOKEN}

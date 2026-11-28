@@ -4,13 +4,12 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
-# Относительные base-URL: в контейнерном стенде nginx проксирует /api на сервисы,
+# Относительные base-URL: в контейнерном стенде nginx проксирует /api на бэкенд,
 # браузер работает с одним origin (см. docker-compose.yml в корне репозитория)
-ENV VITE_API_BASE_URL=/api/v1 \
-    VITE_AI_BASE_URL=/api/v1/ai
+ENV VITE_API_BASE_URL=/api/v1
 RUN npm run build
 
-# Раздача статики + обратный прокси на app/ml (nginx.conf).
+# Раздача статики + обратный прокси на app (nginx.conf).
 FROM nginx:alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
