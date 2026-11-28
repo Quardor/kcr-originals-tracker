@@ -43,7 +43,8 @@ services:
       DB_USERNAME: kcr
       DB_PASSWORD: ${DB_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
-      # Первый ADMIN создаётся при старте, только если таблица пользователей пуста
+      # Первый ADMIN создаётся при старте, только если в базе нет ни одного пользователя
+      # с ролью ADMIN
       ADMIN_USERNAME: ${ADMIN_USERNAME:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       # Через запятую; нужен только при прямом обращении браузера к :8080 —
@@ -53,7 +54,11 @@ services:
       # что AUTH_INTERNAL_TOKEN у ml)
       ML_BASE_URL: ${ML_BASE_URL:-http://ml:8000}
       ML_INTERNAL_TOKEN: ${ML_INTERNAL_TOKEN}
+      # Параметры JVM для контейнера (например -Xmx512m); пусто — размер кучи JVM выбирает сама
+      JAVA_OPTS: ${JAVA_OPTS:-}
     ports:
+      # Только для локальных обращений к API (curl, разработка фронта через npm run dev, тесты);
+      # браузер работает через frontend, внутри стенда app доступен по имени сервиса
       - "127.0.0.1:8080:8080"
     networks:
       - edge

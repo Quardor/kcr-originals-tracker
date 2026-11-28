@@ -356,6 +356,7 @@ ml/
 ├── uv.lock                    # фиксация версий (uv)
 ├── .python-version            # версия Python для uv
 ├── .env.example               # шаблон секретов/настроек (.env — вне git)
+├── .dockerignore             # контекст сборки образа: без .venv, .env, кэшей и тестов
 ├── Dockerfile                 # multi-stage: uv sync → slim-runtime, non-root
 ├── src/
 │   └── kcr_ml/
@@ -425,7 +426,9 @@ Multi-stage, воспроизводимый, без сборочных инст�
 3. конфигурация — только переменными окружения (секретов в образе нет);
    общий `docker-compose.yml` в корне монорепозитория собирает и запускает ml, но его порт
    **не публикуется** — до сервиса достаёт только `app` по внутренней сети `core` (§8);
-   с `--profile local` — ollama/vLLM с Qwen.
+   с `--profile local` — ollama/vLLM с Qwen;
+4. `.dockerignore` не пропускает в контекст сборки `.venv`, `.env`, кэши, `tests/` и документацию —
+   до Dockerfile доходят только `pyproject.toml`, `uv.lock` и `src/`.
 
 ## 13. Конфигурация
 
