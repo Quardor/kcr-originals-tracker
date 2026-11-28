@@ -11,7 +11,7 @@ SPA фронтенд сервиса контроля передачи ориги
 - react-router-dom 7 — маршрутизация
 - без UI-библиотек и CSS-фреймворков — единый `src/styles.css`
 - без axios — fetch-обёртка с автопродлением JWT (`src/api/client.js`)
-- без ESLint/Prettier и без тестов (известный пробел — п. 56 ARCHITECTURE.md бэкенда)
+- без ESLint/Prettier и без тестов (известный пробел — п. 56 §10 ARCHITECTURE-FULL.md бэкенда)
 
 ## Возможности
 
@@ -115,7 +115,7 @@ src/
 
 ## Известные ограничения
 
-Подробности — п. 52, 56 и 63 §10 [ARCHITECTURE.md бэкенда](../../server/kcr-backend/ARCHITECTURE.md):
+Подробности — п. 52, 56 и 63 §10 [ARCHITECTURE-FULL.md бэкенда](../../server/kcr-backend/ARCHITECTURE-FULL.md):
 
 - нет границы ошибок рендера (ErrorBoundary) — исключение в рендере даёт белый экран;
 - «Составить список» отправляет текущие фильтры, а не те, по которым сделан предпросмотр;
